@@ -3,25 +3,67 @@ import os
 import telebot
 import random
 import json
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
 
+# База футбольных клубов
+FOOTBALL_CLUBS = {
+    "Реал Мадрид": {
+        "players": [
+            {"name": "Беллингем", "position": "Полузащитник", "attack": 89, "defense": 72, "salary": 120000, "value": 180000000},
+            {"name": "Винисиус", "position": "Нападающий", "attack": 88, "defense": 45, "salary": 110000, "value": 170000000},
+            {"name": "Куртуа", "position": "Вратарь", "attack": 25, "defense": 90, "salary": 130000, "value": 60000000},
+            {"name": "Милитао", "position": "Защитник", "attack": 55, "defense": 84, "salary": 80000, "value": 40000000}
+        ]
+    },
+    "Барселона": {
+        "players": [
+            {"name": "Педри", "position": "Полузащитник", "attack": 87, "defense": 68, "salary": 100000, "value": 150000000},
+            {"name": "Левандовски", "position": "Нападающий", "attack": 86, "defense": 40, "salary": 120000, "value": 30000000},
+            {"name": "Араухо", "position": "Защитник", "attack": 50, "defense": 86, "salary": 90000, "value": 70000000},
+            {"name": "Тер Штеген", "position": "Вратарь", "attack": 30, "defense": 88, "salary": 110000, "value": 35000000}
+        ]
+    },
+    "Ман Сити": {
+        "players": [
+            {"name": "Холанн", "position": "Нападающий", "attack": 91, "defense": 48, "salary": 150000, "value": 180000000},
+            {"name": "Гвардиол", "position": "Защитник", "attack": 90, "defense": 65, "salary": 140000, "value": 60000000},
+            {"name": "Родри", "position": "Полузащитник", "attack": 82, "defense": 85, "salary": 120000, "value": 100000000},
+            {"name": "Доннарума", "position": "Вратарь", "attack": 35, "defense": 87, "salary": 100000, "value": 40000000}
+        ]
+    },
+    "Ливерпуль": {
+        "players": [
+            {"name": "Салах", "position": "Нападающий", "attack": 88, "defense": 50, "salary": 120000, "value": 65000000},
+            {"name": "Ван Дейк", "position": "Защитник", "attack": 55, "defense": 89, "salary": 110000, "value": 45000000},
+            {"name": "Исак", "position": "Нападающий", "attack": 88, "defense": 39, "salary": 100000, "value": 70000000},
+            {"name": "Алиссон", "position": "Вратарь", "attack": 30, "defense": 89, "salary": 100000, "value": 45000000}
+        ]
+    },
+    "Бавария": {
+        "players": [
+            {"name": "Кейн", "position": "Нападающий", "attack": 90, "defense": 52, "salary": 130000, "value": 90000000},
+            {"name": "Киммих", "position": "Полузащитник", "attack": 85, "defense": 80, "salary": 120000, "value": 75000000},
+            {"name": "Павлович", "position": "Защитник", "attack": 57, "defense": 80, "salary": 100000, "value": 25000000},
+            {"name": "Нойер", "position": "Вратарь", "attack": 40, "defense": 86, "salary": 90000, "value": 10000000}
+        ]
+    }
+}
+
 class AdvancedFootballManager:
-    def __init__(self):
+    def __init__(self, user_id):
+        self.user_id = user_id
         self.load_game()
         
         if not hasattr(self, 'points'):
+            self.club_name = None
             self.points = 0
             self.money = 10000000
             self.week = 1
-            self.players = [
-                {"name": "Иванов", "position": "Нападающий", "attack": 75, "defense": 40, "salary": 50000, "value": 800000},
-                {"name": "Петров", "position": "Полузащитник", "attack": 65, "defense": 60, "salary": 45000, "value": 700000},
-                {"name": "Сидоров", "position": "Защитник", "attack": 45, "defense": 75, "salary": 40000, "value": 600000},
-                {"name": "Козлов", "position": "Вратарь", "attack": 30, "defense": 85, "salary": 60000, "value": 900000}
-            ]
+            self.players = []
             self.league_teams = [
                 {"name": "Мечтатели FC", "points": 0, "goals_for": 0, "goals_against": 0},
                 {"name": "Гладиаторы", "points": 0, "goals_for": 0, "goals_against": 0},
@@ -30,35 +72,56 @@ class AdvancedFootballManager:
                 {"name": "Молния", "points": 0, "goals_for": 0, "goals_against": 0},
                 {"name": "Феникс", "points": 0, "goals_for": 0, "goals_against": 0}
             ]
+            # Система академии
+            self.academy = {
+                "level": 1,
+                "training_cost": 500000,
+                "next_refresh": 0,
+                "current_player": None
+            }
         
         self.generate_transfer_market()
     
     def save_game(self):
         game_data = {
+            'club_name': self.club_name,
             'points': self.points,
             'money': self.money, 
             'week': self.week,
             'players': self.players,
-            'league_teams': self.league_teams
+            'league_teams': self.league_teams,
+            'academy': self.academy
         }
         try:
-            with open('/tmp/football_save.json', 'w') as f:
+            with open(f'/tmp/football_save_{self.user_id}.json', 'w') as f:
                 json.dump(game_data, f)
         except Exception as e:
             print(f"Ошибка сохранения: {e}")
     
     def load_game(self):
         try:
-            with open('/tmp/football_save.json', 'r') as f:
+            with open(f'/tmp/football_save_{self.user_id}.json', 'r') as f:
                 game_data = json.load(f)
+                self.club_name = game_data['club_name']
                 self.points = game_data['points']
                 self.money = game_data['money']
                 self.week = game_data['week'] 
                 self.players = game_data['players']
                 self.league_teams = game_data['league_teams']
+                self.academy = game_data['academy']
                 print("✅ Игра загружена из сохранения")
         except Exception as e:
             print(f"❌ Нет сохранения, новая игра: {e}")
+    
+    def select_club(self, club_name):
+        """Выбор клуба игроком"""
+        if club_name in FOOTBALL_CLUBS:
+            self.club_name = club_name
+            club_data = FOOTBALL_CLUBS[club_name]
+            self.players = club_data['players'].copy()
+            self.save_game()
+            return f"✅ Вы выбрали: {club_name}!\n\nТеперь управляйте своим клубом к победе! 🏆"
+        return "❌ Клуб не найден"
     
     def generate_transfer_market(self):
         positions = ["Нападающий", "Полузащитник", "Защитник", "Вратарь"]
@@ -214,73 +277,360 @@ class AdvancedFootballManager:
     def refresh_market(self):
         self.generate_transfer_market()
         return "🔃 Трансферный рынок обновлен! Новые игроки доступны!"
+    
+    def generate_youth_player(self):
+        """Генерирует молодого игрока в зависимости от уровня академии"""
+        level = self.academy["level"]
+        positions = ["Нападающий", "Полузащитник", "Защитник", "Вратарь"]
+        names = ["Новиков", "Молодцов", "Талантов", "Будущий", "Звездов", "Надеждин"]
+        
+        # Сила игрока зависит от уровня академии
+        min_power = 60 + (level - 1) * 5
+        max_power = 70 + (level - 1) * 5
+        
+        position = random.choice(positions)
+        if position == "Нападающий":
+            attack = random.randint(min_power, max_power)
+            defense = random.randint(30, 50)
+        elif position == "Полузащитник":
+            attack = random.randint(min_power - 5, max_power - 5)
+            defense = random.randint(min_power - 10, max_power - 10)
+        elif position == "Защитник":
+            attack = random.randint(40, 60)
+            defense = random.randint(min_power, max_power)
+        else:  # Вратарь
+            attack = random.randint(20, 40)
+            defense = random.randint(min_power, max_power)
+        
+        player = {
+            "name": f"{random.choice(names)}-мл.",
+            "position": position,
+            "attack": attack,
+            "defense": defense,
+            "salary": 10000 * level,
+            "value": 500000 * level,
+            "from_academy": True
+        }
+        
+        return player
+    
+    def upgrade_academy(self):
+        """Улучшение академии"""
+        current_level = self.academy["level"]
+        if current_level >= 5:
+            return "❌ Академия уже максимального уровня! 🏆"
+        
+        cost = self.academy["training_cost"]
+        if self.money < cost:
+            return f"❌ Недостаточно денег! Нужно {cost:,}€"
+        
+        self.money -= cost
+        self.academy["level"] += 1
+        self.academy["training_cost"] *= 2
+        
+        self.save_game()
+        return f"✅ Академия улучшена до уровня {self.academy['level']}!\n💰 Стоимость: {cost:,}€\n💵 Осталось: {self.money:,}€"
+    
+    def get_academy_player(self):
+        """Получить игрока из академии"""
+        if self.academy["current_player"] is None:
+            if self.week >= self.academy["next_refresh"]:
+                self.academy["current_player"] = self.generate_youth_player()
+                self.academy["next_refresh"] = self.week + 5
+                self.save_game()
+                return "🔄 Сгенерирован новый молодой игрок! Нажмите '👥 Забрать игрока'"
+            else:
+                weeks_left = self.academy["next_refresh"] - self.week
+                return f"⏳ Новый игрок будет через {weeks_left} недель"
+        
+        return "✅ Есть игрок в академии! Нажмите '👥 Забрать игрока'"
+    
+    def claim_academy_player(self):
+        """Забрать игрока из академии в основную команду"""
+        if self.academy["current_player"] is None:
+            return "❌ Нет доступных игроков в академии"
+        
+        if len(self.players) >= 8:
+            return "❌ В команде максимум 8 игроков! Сначала продайте кого-то."
+        
+        player = self.academy["current_player"]
+        self.players.append(player)
+        self.academy["current_player"] = None
+        
+        self.save_game()
+        return f"✅ Игрок добавлен в команду!\n👤 {player['name']} ({player['position']})\n⭐ ⚔️{player['attack']} 🛡️{player['defense']}"
+    
+    def show_academy_info(self):
+        """Информация об академии"""
+        academy_info = f"🏫 АКАДЕМИЯ [Ур. {self.academy['level']}/5]\n\n"
+        
+        levels = {
+            1: "🔹 Начинающая (60-70 силы)",
+            2: "🔸 Развивающая (65-75 силы)", 
+            3: "🔺 Профессиональная (70-80 силы)",
+            4: "🏅 Элитная (75-85 силы)",
+            5: "⭐ Легендарная (80-90 силы)"
+        }
+        
+        academy_info += f"{levels[self.academy['level']]}\n"
+        academy_info += f"💰 Следующее улучшение: {self.academy['training_cost']:,}€\n\n"
+        
+        if self.academy["current_player"]:
+            player = self.academy["current_player"]
+            academy_info += f"👥 Доступен игрок:\n"
+            academy_info += f"👤 {player['name']} ({player['position']})\n"
+            academy_info += f"⭐ ⚔️{player['attack']} 🛡️{player['defense']}\n"
+        else:
+            if self.week >= self.academy["next_refresh"]:
+                academy_info += "🔄 Доступен новый игрок!\n"
+            else:
+                weeks_left = self.academy["next_refresh"] - self.week
+                academy_info += f"⏳ Новый игрок через {weeks_left} недель\n"
+        
+        return academy_info
 
-game = AdvancedFootballManager()
+# Глобальный словарь для хранения игр пользователей
+user_games = {}
 
+def get_user_game(user_id):
+    if user_id not in user_games:
+        user_games[user_id] = AdvancedFootballManager(user_id)
+    return user_games[user_id]
+
+# Обработчики команд с инлайн-кнопками
 @bot.message_handler(commands=['start'])
 def start_command(message):
-    bot.send_message(message.chat.id,
-        "⚽ ФУТБОЛЬНЫЙ МЕНЕДЖЕР ПРО-ЛИГА! 🏆\n\n"
-        "🎮 ОСНОВНЫЕ КОМАНДЫ:\n"
-        "/team - Моя команда\n"
-        "/play - Сыграть матч\n"
-        "/table - Таблица лиги\n\n"
-        "🛒 ТРАНСФЕРЫ:\n"
-        "/market - Трансферный рынок\n"
-        "/buy [N] - Купить игрока\n"
-        "/sell [N] - Продать игрока\n"
-        "/refresh - Обновить рынок\n\n"
-        "💼 ФИНАНСЫ:\n"
-        "/money - Бюджет\n"
-        "/points - Статистика\n\n"
-        "💾 Прогресс автоматически сохраняется!"
-    )
+    game = get_user_game(message.chat.id)
+    
+    if game.club_name is None:
+        # Показываем выбор клуба
+        keyboard = InlineKeyboardMarkup()
+        clubs = list(FOOTBALL_CLUBS.keys())
+        
+        for i in range(0, len(clubs), 2):
+            row = []
+            row.append(InlineKeyboardButton(clubs[i], callback_data=f"club_{clubs[i]}"))
+            if i + 1 < len(clubs):
+                row.append(InlineKeyboardButton(clubs[i+1], callback_data=f"club_{clubs[i+1]}"))
+            keyboard.add(*row)
+        
+        bot.send_message(message.chat.id, 
+            "⚽ ДОБРО ПОЖАЛОВАТЬ В ФУТБОЛЬНЫЙ МЕНЕДЖЕР 2025! 🏆\n\n"
+            "Выберите свой клуб:",
+            reply_markup=keyboard)
+    else:
+        show_main_menu(message.chat.id, game)
+
+def show_main_menu(chat_id, game):
+    keyboard = InlineKeyboardMarkup()
+    keyboard.add(InlineKeyboardButton("👥 Моя команда", callback_data="menu_team"))
+    keyboard.add(InlineKeyboardButton("⚽ Сыграть матч", callback_data="menu_play"))
+    keyboard.add(InlineKeyboardButton("🏆 Таблица лиги", callback_data="menu_table"))
+    keyboard.add(InlineKeyboardButton("🛒 Трансферный рынок", callback_data="menu_market"))
+    keyboard.add(InlineKeyboardButton("🏫 Академия", callback_data="menu_academy"))
+    keyboard.add(InlineKeyboardButton("💵 Финансы", callback_data="menu_money"))
+    
+    bot.send_message(chat_id,
+        f"🏆 {game.club_name}\n"
+        f"💵 Бюджет: {game.money:,}€\n"
+        f"🏅 Очков: {game.points}\n"
+        f"📅 Неделя: {game.week}\n\n"
+        "Выберите действие:",
+        reply_markup=keyboard)
+
+@bot.callback_query_handler(func=lambda call: True)
+def handle_callback(call):
+    game = get_user_game(call.message.chat.id)
+    
+    if call.data.startswith("club_"):
+        club_name = call.data[5:]
+        result = game.select_club(club_name)
+        bot.edit_message_text(
+            f"{result}\n\nТеперь вы управляете {club_name}! 🎉",
+            call.message.chat.id,
+            call.message.message_id
+        )
+        show_main_menu(call.message.chat.id, game)
+    
+    elif call.data == "menu_team":
+        team_info = f"🏆 {game.club_name}\n💰 Бюджет: {game.money:,}€\n🏅 Очков: {game.points}\n⭐ Сила: {game.calculate_team_power():.1f}\n\n"
+        team_info += "👥 Состав:\n"
+        for i, player in enumerate(game.players, 1):
+            team_info += f"{i}. {player['name']} ({player['position']})\n"
+            team_info += f"   ⚔️{player['attack']} 🛡️{player['defense']} 💰{player['salary']:,}€\n"
+        
+        keyboard = InlineKeyboardMarkup()
+        keyboard.add(InlineKeyboardButton("🔙 Назад", callback_data="menu_back"))
+        
+        bot.edit_message_text(team_info, call.message.chat.id, call.message.message_id, reply_markup=keyboard)
+    
+    elif call.data == "menu_play":
+        result = game.play_match()
+        keyboard = InlineKeyboardMarkup()
+        keyboard.add(InlineKeyboardButton("🔙 Назад", callback_data="menu_back"))
+        bot.edit_message_text(result, call.message.chat.id, call.message.message_id, reply_markup=keyboard)
+    
+    elif call.data == "menu_table":
+        table = game.show_league_table()
+        keyboard = InlineKeyboardMarkup()
+        keyboard.add(InlineKeyboardButton("🔙 Назад", callback_data="menu_back"))
+        bot.edit_message_text(table, call.message.chat.id, call.message.message_id, reply_markup=keyboard)
+    
+    elif call.data == "menu_market":
+        market = game.show_transfer_market()
+        keyboard = InlineKeyboardMarkup()
+        keyboard.add(InlineKeyboardButton("🔄 Обновить рынок", callback_data="market_refresh"))
+        keyboard.add(InlineKeyboardButton("🔙 Назад", callback_data="menu_back"))
+        bot.edit_message_text(market, call.message.chat.id, call.message.message_id, reply_markup=keyboard)
+    
+    elif call.data == "menu_academy":
+        academy_info = game.show_academy_info()
+        keyboard = InlineKeyboardMarkup()
+        keyboard.add(InlineKeyboardButton("🔄 Проверить игрока", callback_data="academy_check"))
+        keyboard.add(InlineKeyboardButton("⚡ Улучшить", callback_data="academy_upgrade"))
+        keyboard.add(InlineKeyboardButton("👥 Забрать игрока", callback_data="academy_claim"))
+        keyboard.add(InlineKeyboardButton("🔙 Назад", callback_data="menu_back"))
+        bot.edit_message_text(academy_info, call.message.chat.id, call.message.message_id, reply_markup=keyboard)
+    
+    elif call.data == "menu_money":
+        stats = f"💵 Бюджет: {game.money:,}€\n🏅 Очков: {game.points}\n📅 Неделя: {game.week}"
+        keyboard = InlineKeyboardMarkup()
+        keyboard.add(InlineKeyboardButton("🔙 Назад", callback_data="menu_back"))
+        bot.edit_message_text(stats, call.message.chat.id, call.message.message_id, reply_markup=keyboard)
+    
+    elif call.data == "menu_back":
+        show_main_menu(call.message.chat.id, game)
+    
+    elif call.data == "market_refresh":
+        result = game.refresh_market()
+        market = game.show_transfer_market()
+        keyboard = InlineKeyboardMarkup()
+        keyboard.add(InlineKeyboardButton("🔄 Обновить рынок", callback_data="market_refresh"))
+        keyboard.add(InlineKeyboardButton("🔙 Назад", callback_data="menu_back"))
+        bot.edit_message_text(f"{result}\n\n{market}", call.message.chat.id, call.message.message_id, reply_markup=keyboard)
+    
+    elif call.data == "academy_check":
+        result = game.get_academy_player()
+        academy_info = game.show_academy_info()
+        keyboard = InlineKeyboardMarkup()
+        keyboard.add(InlineKeyboardButton("🔄 Проверить игрока", callback_data="academy_check"))
+        keyboard.add(InlineKeyboardButton("⚡ Улучшить", callback_data="academy_upgrade"))
+        keyboard.add(InlineKeyboardButton("👥 Забрать игрока", callback_data="academy_claim"))
+        keyboard.add(InlineKeyboardButton("🔙 Назад", callback_data="menu_back"))
+        bot.edit_message_text(f"{result}\n\n{academy_info}", call.message.chat.id, call.message.message_id, reply_markup=keyboard)
+    
+    elif call.data == "academy_upgrade":
+        result = game.upgrade_academy()
+        academy_info = game.show_academy_info()
+        keyboard = InlineKeyboardMarkup()
+        keyboard.add(InlineKeyboardButton("🔄 Проверить игрока", callback_data="academy_check"))
+        keyboard.add(InlineKeyboardButton("⚡ Улучшить", callback_data="academy_upgrade"))
+        keyboard.add(InlineKeyboardButton("👥 Забрать игрока", callback_data="academy_claim"))
+        keyboard.add(InlineKeyboardButton("🔙 Назад", callback_data="menu_back"))
+        bot.edit_message_text(f"{result}\n\n{academy_info}", call.message.chat.id, call.message.message_id, reply_markup=keyboard)
+    
+    elif call.data == "academy_claim":
+        result = game.claim_academy_player()
+        academy_info = game.show_academy_info()
+        keyboard = InlineKeyboardMarkup()
+        keyboard.add(InlineKeyboardButton("🔄 Проверить игрока", callback_data="academy_check"))
+        keyboard.add(InlineKeyboardButton("⚡ Улучшить", callback_data="academy_upgrade"))
+        keyboard.add(InlineKeyboardButton("👥 Забрать игрока", callback_data="academy_claim"))
+        keyboard.add(InlineKeyboardButton("🔙 Назад", callback_data="menu_back"))
+        bot.edit_message_text(f"{result}\n\n{academy_info}", call.message.chat.id, call.message.message_id, reply_markup=keyboard)
+
+# Старые текстовые команды (для совместимости)
+@bot.message_handler(commands=['team'])
+def team_command(message):
+    game = get_user_game(message.chat.id)
+    if game.club_name is None:
+        start_command(message)
+    else:
+        team_info = f"🏆 {game.club_name}\n💰 Бюджет: {game.money:,}€\n🏅 Очков: {game.points}\n⭐ Сила: {game.calculate_team_power():.1f}\n\n"
+        team_info += "👥 Состав:\n"
+        for i, player in enumerate(game.players, 1):
+            team_info += f"{i}. {player['name']} ({player['position']})\n"
+            team_info += f"   ⚔️{player['attack']} 🛡️{player['defense']} 💰{player['salary']:,}€\n"
+        bot.send_message(message.chat.id, team_info)
 
 @bot.message_handler(commands=['play'])
-def play_match(message):
-    bot.send_message(message.chat.id, game.play_match())
-
-@bot.message_handler(commands=['team'])
-def show_team(message):
-    team_info = f"🏆 Мечтатели FC\n💰 Бюджет: {game.money:,}€\n🏅 Очков: {game.points}\n⭐ Сила: {game.calculate_team_power():.1f}\n\n"
-    team_info += "👥 Состав:\n"
-    for i, player in enumerate(game.players, 1):
-        team_info += f"{i}. {player['name']} ({player['position']})\n"
-        team_info += f"   ⚔️{player['attack']} 🛡️{player['defense']} 💰{player['salary']:,}€\n"
-    bot.send_message(message.chat.id, team_info)
+def play_command(message):
+    game = get_user_game(message.chat.id)
+    if game.club_name is None:
+        start_command(message)
+    else:
+        bot.send_message(message.chat.id, game.play_match())
 
 @bot.message_handler(commands=['table'])
-def show_table(message):
-    bot.send_message(message.chat.id, game.show_league_table())
+def table_command(message):
+    game = get_user_game(message.chat.id)
+    if game.club_name is None:
+        start_command(message)
+    else:
+        bot.send_message(message.chat.id, game.show_league_table())
 
 @bot.message_handler(commands=['market'])
-def show_market(message):
-    bot.send_message(message.chat.id, game.show_transfer_market())
+def market_command(message):
+    game = get_user_game(message.chat.id)
+    if game.club_name is None:
+        start_command(message)
+    else:
+        bot.send_message(message.chat.id, game.show_transfer_market())
 
 @bot.message_handler(commands=['buy'])
-def buy_player(message):
-    parts = message.text.split()
-    if len(parts) == 2:
-        bot.send_message(message.chat.id, game.buy_player(parts[1]))
+def buy_command(message):
+    game = get_user_game(message.chat.id)
+    if game.club_name is None:
+        start_command(message)
     else:
-        bot.send_message(message.chat.id, "Используй: /buy [номер]")
+        parts = message.text.split()
+        if len(parts) == 2:
+            bot.send_message(message.chat.id, game.buy_player(parts[1]))
+        else:
+            bot.send_message(message.chat.id, "Используй: /buy [номер]")
 
 @bot.message_handler(commands=['sell'])
-def sell_player(message):
-    parts = message.text.split()
-    if len(parts) == 2:
-        bot.send_message(message.chat.id, game.sell_player(parts[1]))
+def sell_command(message):
+    game = get_user_game(message.chat.id)
+    if game.club_name is None:
+        start_command(message)
     else:
-        bot.send_message(message.chat.id, "Используй: /sell [номер]")
+        parts = message.text.split()
+        if len(parts) == 2:
+            bot.send_message(message.chat.id, game.sell_player(parts[1]))
+        else:
+            bot.send_message(message.chat.id, "Используй: /sell [номер]")
 
 @bot.message_handler(commands=['refresh'])
-def refresh_market(message):
-    bot.send_message(message.chat.id, game.refresh_market())
+def refresh_command(message):
+    game = get_user_game(message.chat.id)
+    if game.club_name is None:
+        start_command(message)
+    else:
+        bot.send_message(message.chat.id, game.refresh_market())
 
 @bot.message_handler(commands=['money', 'points'])
-def show_stats(message):
-    bot.send_message(message.chat.id, f"💵 Бюджет: {game.money:,}€\n🏅 Очков: {game.points}\n📅 Неделя: {game.week}")
+def money_command(message):
+    game = get_user_game(message.chat.id)
+    if game.club_name is None:
+        start_command(message)
+    else:
+        bot.send_message(message.chat.id, f"💵 Бюджет: {game.money:,}€\n🏅 Очков: {game.points}\n📅 Неделя: {game.week}")
 
+@bot.message_handler(commands=['academy'])
+def academy_command(message):
+    game = get_user_game(message.chat.id)
+    if game.club_name is None:
+        start_command(message)
+    else:
+        academy_info = game.show_academy_info()
+        keyboard = InlineKeyboardMarkup()
+        keyboard.add(InlineKeyboardButton("🔄 Проверить игрока", callback_data="academy_check"))
+        keyboard.add(InlineKeyboardButton("⚡ Улучшить", callback_data="academy_upgrade"))
+        keyboard.add(InlineKeyboardButton("👥 Забрать игрока", callback_data="academy_claim"))
+        bot.send_message(message.chat.id, academy_info, reply_markup=keyboard)
+
+# Вебхук и запуск
 @app.route('/webhook', methods=['POST'])
 def webhook():
     if request.headers.get('content-type') == 'application/json':
@@ -301,4 +651,4 @@ def set_webhook():
 
 if __name__ == '__main__':
     set_webhook()
-    app.run(host='0.0.0.0', port=5000)
+    app.run(host='0.0.0.0', port=5000)    
