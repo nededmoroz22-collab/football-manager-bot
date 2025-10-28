@@ -1,4 +1,77 @@
-player = {
+from flask import Flask, request
+import os
+import telebot
+import random
+import json
+
+BOT_TOKEN = os.environ.get('BOT_TOKEN')
+bot = telebot.TeleBot(BOT_TOKEN)
+app = Flask(__name__)
+
+class AdvancedFootballManager:
+    def __init__(self):
+        self.load_game()
+        
+        if not hasattr(self, 'points'):
+            self.points = 0
+            self.money = 10000000
+            self.week = 1
+            self.players = [
+                {"name": "Иванов", "position": "Нападающий", "attack": 75, "defense": 40, "salary": 50000, "value": 800000},
+                {"name": "Петров", "position": "Полузащитник", "attack": 65, "defense": 60, "salary": 45000, "value": 700000},
+                {"name": "Сидоров", "position": "Защитник", "attack": 45, "defense": 75, "salary": 40000, "value": 600000},
+                {"name": "Козлов", "position": "Вратарь", "attack": 30, "defense": 85, "salary": 60000, "value": 900000}
+            ]
+            self.league_teams = [
+                {"name": "Мечтатели FC", "points": 0, "goals_for": 0, "goals_against": 0},
+                {"name": "Гладиаторы", "points": 0, "goals_for": 0, "goals_against": 0},
+                {"name": "Титаны", "points": 0, "goals_for": 0, "goals_against": 0},
+                {"name": "Буревестники", "points": 0, "goals_for": 0, "goals_against": 0},
+                {"name": "Молния", "points": 0, "goals_for": 0, "goals_against": 0},
+                {"name": "Феникс", "points": 0, "goals_for": 0, "goals_against": 0}
+            ]
+        
+        self.generate_transfer_market()
+    
+    def save_game(self):
+        game_data = {
+            'points': self.points,
+            'money': self.money, 
+            'week': self.week,
+            'players': self.players,
+            'league_teams': self.league_teams
+        }
+        try:
+            with open('/tmp/football_save.json', 'w') as f:
+                json.dump(game_data, f)
+        except Exception as e:
+            print(f"Ошибка сохранения: {e}")
+    
+    def load_game(self):
+        try:
+            with open('/tmp/football_save.json', 'r') as f:
+                game_data = json.load(f)
+                self.points = game_data['points']
+                self.money = game_data['money']
+                self.week = game_data['week'] 
+                self.players = game_data['players']
+                self.league_teams = game_data['league_teams']
+                print("✅ Игра загружена из сохранения")
+        except Exception as e:
+            print(f"❌ Нет сохранения, новая игра: {e}")
+    
+    def generate_transfer_market(self):
+        positions = ["Нападающий", "Полузащитник", "Защитник", "Вратарь"]
+        names = ["Соколов", "Орлов", "Лебедев", "Медведев", "Волков", "Соловьев", "Морозов", "Зайцев"]
+        
+        self.transfer_players = []
+        for _ in range(6):
+            position = random.choice(positions)
+            attack = random.randint(70, 88)
+            defense = random.randint(65, 85)
+            price = random.randint(1000000, 3000000)
+            
+            player = {
                 "name": random.choice(names),
                 "position": position,
                 "attack": attack,
@@ -44,7 +117,105 @@ player = {
         else:
             result = f"ПОРАЖЕНИЕ {my_goals}-{opponent_goals} 😔"
             opponent["points"] += 3
+            prize = 60000
+        
+        self.money += prize
+        self.week += 1
+        
+        salary_info = ""
+        if self.week % 4 == 0:
+            total_salary = sum(p["salary"] for p in self.players)
+            self.money -= total_salary
+            salary_info = f"\n💸 Зарплаты: -{total_salary:,}€"
+        
+        self.save_game()
+        return f"🎯 Неделя {self.week-1}\n⚔️ Против: {opponent['name']}\n{result}\n💰 Приз: +{prize:,}€{salary_info}\n🏆 Очков: {self.points}\n💵 Бюджет: {self.money:,}€"
+    
+    def show_league_table(self):
+        sorted_teams = sorted(self.league_teams, key=lambda x: (-x["points"], -(x["goals_for"] - x["goals_against"])))
+        
+        table = "🏆 ТАБЛИЦА ЛИГИ:\n\n"
+        table += "№  Команда           О  ГЗ  ГП  Р\n"
+        table += "─" * 30 + "\n"
+        
+        for i, team in enumerate(sorted_teams, 1):
+            goals_diff = team["goals_for"] - team["goals_against"]
+            goals_diff_str = f"+{goals_diff}" if goals_diff > 0 else str(goals_diff)
+            emoji = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else "  "
+            table += f"{i:<2}{emoji} {team['name']:<15} {team['points']:<2} {team['goals_for']:<2} {team['goals_against']:<2} {goals_diff_str:<3}\n"
+        
+        table += f"\n📅 Текущая неделя: {self.week}"
+        return table
+    
+    def show_transfer_market(self):
+        if not self.transfer_players:
+            self.generate_transfer_market()
+        
+        market = "🛒 ТРАНСФЕРНЫЙ РЫНОК:\n\n"
+        for i, player in enumerate(self.transfer_players, 1):
+            stars = "⭐" * (player["attack"] // 20)
+            market += f"{i}. {player['name']} {player['country']}\n"
+            market += f"   📍 {player['position']} | ⚔️{player['attack']} 🛡️{player['defense']}\n"
+            market += f"   {stars}\n"
+            market += f"   💰 {player['price']:,}€\n\n"
+        
+        market += "🛒 Команды:\n/buy [номер] - Купить игрока\n/sell [номер] - Продать игрока\n/refresh - Обновить рынок"
+        return market
+    
+    def buy_player(self, player_num):
+        try:
+            player_index = int(player_num) - 1
+            if player_index < 0 or player_index >= len(self.transfer_players):
+                return "❌ Неверный номер игрока!"
+            
+            player = self.transfer_players[player_index]
+            
+            if self.money < player["price"]:
+                return f"❌ Недостаточно денег! Нужно {player['price']:,}€"
+            
+            if len(self.players) >= 8:
+                return "❌ В команде максимум 8 игроков! Сначала продай кого-то."
+            
+            new_player = player.copy()
+            new_player["salary"] = player["price"] // 20
+            new_player["value"] = player["price"]
+            self.players.append(new_player)
+            
+            self.money -= player["price"]
+            self.transfer_players.pop(player_index)
+            
+            self.save_game()
+            return f"✅ УСПЕШНАЯ ПОКУПКА!\n👤 {new_player['name']} ({new_player['position']})\n⭐ ⚔️{new_player['attack']} 🛡️{new_player['defense']}\n💵 Цена: {player['price']:,}€\n💰 Осталось: {self.money:,}€"
+        
+        except ValueError:
+            return "❌ Используй: /buy [номер]"
+    
+    def sell_player(self, player_num):
+        try:
+            player_index = int(player_num) - 1
+            if player_index < 0 or player_index >= len(self.players):
+                return "❌ Неверный номер игрока!"
+            
+            if len(self.players) <= 4:
+                return "❌ В команде должно быть минимум 4 игрока!"
+            
+            player = self.players[player_index]
+            sell_price = player["value"] * 0.8
+            
+            self.money += sell_price
+            self.players.pop(player_index)
+            
+            self.save_game()
+            return f"✅ ИГРОК ПРОДАН!\n👤 {player['name']} ({player['position']})\n💵 Получено: {sell_price:,.0f}€\n💰 Бюджет: {self.money:,}€"
+        
+        except ValueError:
+            return "❌ Используй: /sell [номер]"
+    
+    def refresh_market(self):
+        self.generate_transfer_market()
+        return "🔃 Трансферный рынок обновлен! Новые игроки доступны!"
 
+game = AdvancedFootballManager()
 
 @bot.message_handler(commands=['start'])
 def start_command(message):
@@ -61,7 +232,8 @@ def start_command(message):
         "/refresh - Обновить рынок\n\n"
         "💼 ФИНАНСЫ:\n"
         "/money - Бюджет\n"
-        "/points - Статистика"
+        "/points - Статистика\n\n"
+        "💾 Прогресс автоматически сохраняется!"
     )
 
 @bot.message_handler(commands=['play'])
@@ -130,5 +302,3 @@ def set_webhook():
 if __name__ == '__main__':
     set_webhook()
     app.run(host='0.0.0.0', port=5000)
-
-            
