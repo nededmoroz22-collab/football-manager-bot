@@ -10,7 +10,7 @@ BOT_TOKEN = os.environ.get('BOT_TOKEN')
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
 
-# === PvP СИСТЕМА ===
+# === PvP СИСТЕМА С СОХРАНЕНИЕМ ===
 class PvPMatch:
     def __init__(self, match_id, challenger_id, opponent_id, bet_amount=0):
         self.match_id = match_id
@@ -54,6 +54,34 @@ class PvPManager:
         self.pending_requests = {}
         self.rating_system = RatingSystem()
         self.match_counter = 1
+        self.load_pvp_data()
+    
+    def save_pvp_data(self):
+        """Сохраняет PvP данные в файл"""
+        pvp_data = {
+            'ratings': self.rating_system.ratings,
+            'match_counter': self.match_counter,
+            'user_usernames': user_usernames
+        }
+        try:
+            with open('/tmp/pvp_data.json', 'w') as f:
+                json.dump(pvp_data, f)
+        except Exception as e:
+            print(f"Ошибка сохранения PvP: {e}")
+    
+    def load_pvp_data(self):
+        """Загружает PvP данные из файла"""
+        try:
+            with open('/tmp/pvp_data.json', 'r') as f:
+                pvp_data = json.load(f)
+                self.rating_system.ratings = pvp_data['ratings']
+                self.match_counter = pvp_data['match_counter']
+                user_usernames.update(pvp_data['user_usernames'])
+                print("✅ PvP данные загружены")
+        except Exception as e:
+            print(f"❌ Нет PvP данных, новая сессия: {e}")
+            self.rating_system.ratings = {}
+            self.match_counter = 1
     
     def create_match(self, challenger_id, opponent_id, bet_amount=0):
         match_id = f"match_{self.match_counter}"
@@ -63,6 +91,7 @@ class PvPManager:
         self.active_matches[match_id] = match
         self.pending_requests[opponent_id] = match_id
         
+        self.save_pvp_data()
         return match
     
     def get_match_by_opponent(self, opponent_id):
@@ -112,6 +141,7 @@ class PvPManager:
             winner_game.save_game()
         
         match.status = "finished"
+        self.save_pvp_data()
         return match
 
 pvp_manager = PvPManager()
@@ -160,6 +190,37 @@ FOOTBALL_CLUBS = {
         ]
     }
 }
+
+# === РЕАЛЬНЫЕ ИГРОКИ ДЛЯ ТРАНСФЕРНОГО РЫНКА ===
+REAL_PLAYERS = [
+    # Звездные игроки
+    {"name": "Мбаппе", "position": "Нападающий", "attack": 92, "defense": 40, "price": 4500000, "country": "🇫🇷 Франция", "stars": 5},
+    {"name": "Холанн", "position": "Нападающий", "attack": 91, "defense": 48, "price": 4200000, "country": "🇳🇴 Норвегия", "stars": 5},
+    {"name": "Месси", "position": "Нападающий", "attack": 90, "defense": 38, "price": 3800000, "country": "🇦🇷 Аргентина", "stars": 5},
+    {"name": "Де Бройне", "position": "Полузащитник", "attack": 90, "defense": 65, "price": 4000000, "country": "🇧🇪 Бельгия", "stars": 5},
+    {"name": "Кевин", "position": "Полузащитник", "attack": 89, "defense": 70, "price": 3500000, "country": "🇧🇷 Бразилия", "stars": 4},
+    
+    # Защитники
+    {"name": "Ван Дейк", "position": "Защитник", "attack": 55, "defense": 89, "price": 3200000, "country": "🇳🇱 Нидерланды", "stars": 4},
+    {"name": "Рамос", "position": "Защитник", "attack": 60, "defense": 87, "price": 2800000, "country": "🇪🇸 Испания", "stars": 4},
+    {"name": "Милitaо", "position": "Защитник", "attack": 58, "defense": 86, "price": 3000000, "country": "🇧🇷 Бразилия", "stars": 4},
+    
+    # Вратари
+    {"name": "Алиссон", "position": "Вратарь", "attack": 30, "defense": 89, "price": 2500000, "country": "🇧🇷 Бразилия", "stars": 4},
+    {"name": "Облиak", "position": "Вратарь", "attack": 35, "defense": 88, "price": 2200000, "country": "🇸🇮 Словения", "stars": 4},
+    
+    # Молодые таланты
+    {"name": "Мукико", "position": "Нападающий", "attack": 84, "defense": 35, "price": 1800000, "country": "🇪🇸 Испания", "stars": 3},
+    {"name": "БелЛИнгем", "position": "Полузащитник", "attack": 86, "defense": 68, "price": 2000000, "country": "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Англия", "stars": 4},
+    {"name": "Гави", "position": "Полузащитник", "attack": 82, "defense": 62, "price": 1600000, "country": "🇪🇸 Испания", "stars": 3},
+    {"name": "Сакa", "position": "Нападающий", "attack": 85, "defense": 42, "price": 1900000, "country": "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Англия", "stars": 3},
+    
+    # Российские игроки
+    {"name": "Смолов", "position": "Нападающий", "attack": 78, "defense": 38, "price": 1200000, "country": "🇷🇺 Россия", "stars": 3},
+    {"name": "Головин", "position": "Полузащитник", "attack": 80, "defense": 65, "price": 1500000, "country": "🇷🇺 Россия", "stars": 3},
+    {"name": "Дзюба", "position": "Нападающий", "attack": 76, "defense": 45, "price": 1000000, "country": "🇷🇺 Россия", "stars": 2},
+    {"name": "Акинфеев", "position": "Вратарь", "attack": 25, "defense": 82, "price": 800000, "country": "🇷🇺 Россия", "stars": 2},
+]
 
 # === ОСНОВНОЙ КЛАСС ИГРЫ ===
 class AdvancedFootballManager:
@@ -231,24 +292,17 @@ class AdvancedFootballManager:
         return "❌ Клуб не найден"
     
     def generate_transfer_market(self):
-        positions = ["Нападающий", "Полузащитник", "Защитник", "Вратарь"]
-        names = ["Соколов", "Орлов", "Лебедев", "Медведев", "Волков", "Соловьев", "Морозов", "Зайцев"]
-        
+        """Генерирует трансферный рынок со звездными игроками"""
         self.transfer_players = []
-        for _ in range(6):
-            position = random.choice(positions)
-            attack = random.randint(70, 88)
-            defense = random.randint(65, 85)
-            price = random.randint(1000000, 3000000)
-            
-            player = {
-                "name": random.choice(names),
-                "position": position,
-                "attack": attack,
-                "defense": defense,
-                "price": price,
-                "country": random.choice(["🇷🇺 Россия", "🇧🇷 Бразилия", "🇦🇷 Аргентина", "🇫🇷 Франция", "🇩🇪 Германия"])
-            }
+        
+        # Берем 6 случайных реальных игроков
+        selected_players = random.sample(REAL_PLAYERS, min(6, len(REAL_PLAYERS)))
+        
+        for player_data in selected_players:
+            player = player_data.copy()
+            # Добавляем зарплату и стоимость на основе цены
+            player["salary"] = player["price"] // 20
+            player["value"] = player["price"]
             self.transfer_players.append(player)
     
     def calculate_team_power(self):
@@ -321,9 +375,9 @@ class AdvancedFootballManager:
         if not self.transfer_players:
             self.generate_transfer_market()
         
-        market = "🛒 ТРАНСФЕРНЫЙ РЫНОК:\n\n"
+        market = "🛒 ТРАНСФЕРНЫЙ РЫНОК СО ЗВЕЗДАМИ!\n\n"
         for i, player in enumerate(self.transfer_players, 1):
-            stars = "⭐" * (player["attack"] // 20)
+            stars = "⭐" * player.get("stars", 3)
             market += f"{i}. {player['name']} {player['country']}\n"
             market += f"   📍 {player['position']} | ⚔️{player['attack']} 🛡️{player['defense']}\n"
             market += f"   {stars}\n"
@@ -383,7 +437,7 @@ class AdvancedFootballManager:
     
     def refresh_market(self):
         self.generate_transfer_market()
-        return "🔃 Трансферный рынок обновлен! Новые игроки доступны!"
+        return "🔃 Трансферный рынок обновлен! Новые звезды доступны!"
     
     def generate_youth_player(self):
         level = self.academy["level"]
@@ -873,7 +927,7 @@ def handle_callback(call):
             bot.edit_message_text("❌ Вызов отклонен!", call.message.chat.id, call.message.message_id)
             bot.send_message(match.challenger_id, "❌ Ваш вызов был отклонен.")
 
-# === СТАРЫЕ ТЕКСТОВЫЕ КОМАНДЫ (для совместимости) ===
+# === СТАРЫЕ ТЕКСТОВЫЕ КОМАНДЫ ===
 @bot.message_handler(commands=['team'])
 def team_command(message):
     game = get_user_game(message.chat.id)
@@ -969,6 +1023,7 @@ def academy_command(message):
 def track_usernames(message):
     if message.from_user.username:
         user_usernames[message.chat.id] = message.from_user.username
+        pvp_manager.save_pvp_data()
 
 # === ВЕБХУК И ЗАПУСК ===
 @app.route('/webhook', methods=['POST'])
