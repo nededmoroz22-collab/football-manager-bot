@@ -10,8 +10,8 @@ BOT_TOKEN = os.environ.get('BOT_TOKEN')
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
 
-# === PvP СИСТЕМА ===
-class PvPMatch:
+# === СУПЕР-ПРОСТАЯ PvP СИСТЕМА (ТОЛЬКО В ПАМЯТИ) ===
+class SimplePvPMatch:
     def __init__(self, match_id, challenger_id, opponent_id, bet_amount=0):
         self.match_id = match_id
         self.challenger_id = challenger_id
@@ -20,101 +20,28 @@ class PvPMatch:
         self.status = "pending"
         self.score = [0, 0]
         self.winner = None
-        self.created_time = time.time()
 
-class RatingSystem:
-    def __init__(self):
-        self.ratings = {}
-    
-    def get_rating(self, user_id):
-        if user_id not in self.ratings:
-            self.ratings[user_id] = {"rating": 1500, "wins": 0, "losses": 0, "draws": 0}
-        return self.ratings[user_id]
-    
-    def update_rating(self, winner_id, loser_id, is_draw=False):
-        if is_draw:
-            self.ratings[winner_id]["rating"] += 2
-            self.ratings[loser_id]["rating"] -= 2
-            self.ratings[winner_id]["draws"] += 1
-            self.ratings[loser_id]["draws"] += 1
-        else:
-            rating_diff = self.ratings[loser_id]["rating"] - self.ratings[winner_id]["rating"]
-            k = 24
-            expected_win = 1 / (1 + 10 ** (rating_diff / 400))
-            points = k * (1 - expected_win)
-            
-            self.ratings[winner_id]["rating"] += points
-            self.ratings[loser_id]["rating"] -= points
-            self.ratings[winner_id]["wins"] += 1
-            self.ratings[loser_id]["losses"] += 1
-
-class PvPManager:
+class SimplePvPManager:
     def __init__(self):
         self.active_matches = {}
-        self.pending_requests = {}
-        self.rating_system = RatingSystem()
         self.match_counter = 1
-        self.load_pvp_data()
     
-    def save_pvp_data(self):
-        """Сохраняет PvP данные в файл"""
-        matches_data = {}
-        for match_id, match in self.active_matches.items():
-            matches_data[match_id] = {
-                'match_id': match.match_id,
-                'challenger_id': match.challenger_id,
-                'opponent_id': match.opponent_id,
-                'bet_amount': match.bet_amount,
-                'status': match.status,
-                'score': match.score,
-                'winner': match.winner,
-                'created_time': match.created_time
-            }
+    def create_match(self, challenger_id, opponent_id, bet_amount=0):
+        # Очищаем старые матчи для этих игроков
+        self.clean_old_matches(challenger_id, opponent_id)
         
-        pvp_data = {
-            'ratings': self.rating_system.ratings,
-            'match_counter': self.match_counter,
-            'user_usernames': user_usernames,
-            'active_matches': matches_data,
-            'pending_requests': self.pending_requests
-        }
-        try:
-            with open('/tmp/pvp_data.json', 'w') as f:
-                json.dump(pvp_data, f)
-        except Exception as e:
-            print(f"Ошибка сохранения PvP: {e}")
-    
-    def load_pvp_data(self):
-        """Загружает PvP данные из файла"""
-        global user_usernames
-        try:
-            with open('/tmp/pvp_data.json', 'r') as f:
-                pvp_data = json.load(f)
-                self.rating_system.ratings = pvp_data.get('ratings', {})
-                self.match_counter = pvp_data.get('match_counter', 1)
-                user_usernames.update(pvp_data.get('user_usernames', {}))
-                
-                # Восстанавливаем активные матчи
-                matches_data = pvp_data.get('active_matches', {})
-                for match_id, match_data in matches_data.items():
-                    match = PvPMatch(
-                        match_data['match_id'],
-                        match_data['challenger_id'],
-                        match_data['opponent_id'],
-                        match_data['bet_amount']
-                    )
-                    match.status = match_data['status']
-                    match.score = match_data['score']
-                    match.winner = match_data['winner']
-                    match.created_time = match_data['created_time']
-                    self.active_matches[match_id] = match
-                
-                # Восстанавливаем pending_requests
-                self.pending_requests = pvp_data.get('pending_requests', {})
-                
-                print("✅ PvP данные загружены")
-        except Exception as e:
-            print(f"❌ Нет PvP данных: {e}")
+        match_id = f"match_{self.match_counter}_{int(time.time())}"
+        self.match_counter += 1
+        
+        match = SimplePvPMatch(match_id, challenger_id, opponent_id, bet_amount)
+        self.active_matches[match_id] = match
+        
+        print(f"🎯 Создан матч {match_id}")
+        print(f"   Игроки: {challenger_id} vs {opponent_id}")
+        print(f"   Ставка: {bet_amount}")
+        print(f"   Всего матчей: {len(self.active_matches)}")
+        
+        return match
     
     def clean_old_matches(self, challenger_id, opponent_id):
         """Удаляем старые pending матчи для этих игроков"""
@@ -130,32 +57,15 @@ class PvPManager:
         
         for match_id in matches_to_remove:
             del self.active_matches[match_id]
-        
-        # Чистим pending_requests
-        if challenger_id in self.pending_requests:
-            del self.pending_requests[challenger_id]
-        if opponent_id in self.pending_requests:
-            del self.pending_requests[opponent_id]
-    
-    def create_match(self, challenger_id, opponent_id, bet_amount=0):
-        # Удаляем старые pending матчи для этих игроков
-        self.clean_old_matches(challenger_id, opponent_id)
-        
-        match_id = f"match_{self.match_counter}"
-        self.match_counter += 1
-        
-        match = PvPMatch(match_id, challenger_id, opponent_id, bet_amount)
-        self.active_matches[match_id] = match
-        self.pending_requests[opponent_id] = match_id
-        
-        print(f"🎯 Создан матч {match_id}")
-        
-        # Сохраняем сразу
-        self.save_pvp_data()
-        return match
+            print(f"🗑️ Удален старый матч: {match_id}")
     
     def get_match(self, match_id):
-        return self.active_matches.get(match_id)
+        match = self.active_matches.get(match_id)
+        print(f"🔍 Поиск матча {match_id}: {'найден' if match else 'не найден'}")
+        print(f"   Всего матчей в памяти: {len(self.active_matches)}")
+        if match:
+            print(f"   Статус матча: {match.status}")
+        return match
     
     def calculate_pvp_result(self, match):
         challenger_game = get_user_game(match.challenger_id)
@@ -164,53 +74,48 @@ class PvPManager:
         power1 = challenger_game.calculate_team_power()
         power2 = opponent_game.calculate_team_power()
         
-        rating1 = self.rating_system.get_rating(match.challenger_id)["rating"]
-        rating2 = self.rating_system.get_rating(match.opponent_id)["rating"]
-        
-        rating_bonus1 = min(rating1 / 150, 8)
-        rating_bonus2 = min(rating2 / 150, 8)
-        
-        total_power1 = power1 + rating_bonus1
-        total_power2 = power2 + rating_bonus2
+        # Простой расчет с элементами случайности
+        total_power1 = power1 + random.randint(-10, 10)
+        total_power2 = power2 + random.randint(-10, 10)
         
         power_diff = total_power1 - total_power2
         
-        goals1 = max(0, int(1 + (power_diff / 20) + random.randint(0, 2)))
-        goals2 = max(0, int(1 + (-power_diff / 20) + random.randint(0, 2)))
+        goals1 = max(0, int(1 + (power_diff / 15) + random.randint(0, 3)))
+        goals2 = max(0, int(1 + (-power_diff / 15) + random.randint(0, 3)))
         
         match.score = [goals1, goals2]
         
         if goals1 > goals2:
             match.winner = match.challenger_id
-            self.rating_system.update_rating(match.challenger_id, match.opponent_id)
         elif goals2 > goals1:
             match.winner = match.opponent_id
-            self.rating_system.update_rating(match.opponent_id, match.challenger_id)
         else:
             match.winner = "draw"
-            self.rating_system.update_rating(match.challenger_id, match.opponent_id, is_draw=True)
         
+        # Обработка ставок
         if match.bet_amount > 0 and match.winner != "draw":
             winner_game = get_user_game(match.winner)
-            prize = int(match.bet_amount * 1.6)
+            prize = int(match.bet_amount * 1.8)
             winner_game.money += prize
             winner_game.save_game()
+            print(f"💰 Выигрыш {prize}€ игроку {match.winner}")
         
         match.status = "finished"
-        self.save_pvp_data()
+        print(f"🏁 Матч завершен: {goals1}-{goals2}, победитель: {match.winner}")
         return match
 
-pvp_manager = PvPManager()
+# Глобальные переменные
+pvp_manager = SimplePvPManager()
 user_usernames = {}
+user_games = {}
 
-# === БАЗА КЛУБОВ ===
+# === БАЗА КЛУБОВ (сокращенная для примера) ===
 FOOTBALL_CLUBS = {
     "Реал Мадрид": {
         "players": [
             {"name": "Беллингем", "position": "Полузащитник", "attack": 89, "defense": 72, "salary": 120000, "value": 180000000},
             {"name": "Винисиус", "position": "Нападающий", "attack": 88, "defense": 45, "salary": 110000, "value": 170000000},
             {"name": "Куртуа", "position": "Вратарь", "attack": 25, "defense": 90, "salary": 130000, "value": 60000000},
-            {"name": "Алава", "position": "Защитник", "attack": 55, "defense": 84, "salary": 80000, "value": 40000000}
         ]
     },
     "Барселона": {
@@ -218,7 +123,6 @@ FOOTBALL_CLUBS = {
             {"name": "Педри", "position": "Полузащитник", "attack": 87, "defense": 68, "salary": 100000, "value": 150000000},
             {"name": "Левандовски", "position": "Нападающий", "attack": 86, "defense": 40, "salary": 120000, "value": 30000000},
             {"name": "Араухо", "position": "Защитник", "attack": 50, "defense": 86, "salary": 90000, "value": 70000000},
-            {"name": "Тер Штеген", "position": "Вратарь", "attack": 30, "defense": 88, "salary": 110000, "value": 35000000}
         ]
     },
     "Ман Сити": {
@@ -226,48 +130,9 @@ FOOTBALL_CLUBS = {
             {"name": "Холанн", "position": "Нападающий", "attack": 91, "defense": 48, "salary": 150000, "value": 180000000},
             {"name": "Де Бройне", "position": "Полузащитник", "attack": 90, "defense": 65, "salary": 140000, "value": 60000000},
             {"name": "Родри", "position": "Полузащитник", "attack": 82, "defense": 85, "salary": 120000, "value": 100000000},
-            {"name": "Эдерсон", "position": "Вратарь", "attack": 35, "defense": 87, "salary": 100000, "value": 40000000}
-        ]
-    },
-    "Ливерпуль": {
-        "players": [
-            {"name": "Салах", "position": "Нападающий", "attack": 88, "defense": 50, "salary": 120000, "value": 65000000},
-            {"name": "Ван Дейк", "position": "Защитник", "attack": 55, "defense": 89, "salary": 110000, "value": 45000000},
-            {"name": "Александр-Арнольд", "position": "Защитник", "attack": 75, "defense": 78, "salary": 100000, "value": 70000000},
-            {"name": "Алиссон", "position": "Вратарь", "attack": 30, "defense": 89, "salary": 100000, "value": 45000000}
-        ]
-    },
-    "Бавария": {
-        "players": [
-            {"name": "Кейн", "position": "Нападающий", "attack": 90, "defense": 52, "salary": 130000, "value": 90000000},
-            {"name": "Киммих", "position": "Полузащитник", "attack": 85, "defense": 80, "salary": 120000, "value": 75000000},
-            {"name": "Мюллер", "position": "Нападающий", "attack": 84, "defense": 60, "salary": 100000, "value": 25000000},
-            {"name": "Нойер", "position": "Вратарь", "attack": 40, "defense": 86, "salary": 90000, "value": 10000000}
         ]
     }
 }
-
-# === РЕАЛЬНЫЕ ИГРОКИ ДЛЯ ТРАНСФЕРНОГО РЫНКА ===
-REAL_PLAYERS = [
-    {"name": "Мбаппе", "position": "Нападающий", "attack": 92, "defense": 40, "price": 4500000, "country": "🇫🇷 Франция", "stars": 5},
-    {"name": "Холанн", "position": "Нападающий", "attack": 91, "defense": 48, "price": 4200000, "country": "🇳🇴 Норвегия", "stars": 5},
-    {"name": "Месси", "position": "Нападающий", "attack": 90, "defense": 38, "price": 3800000, "country": "🇦🇷 Аргентина", "stars": 5},
-    {"name": "Де Бройне", "position": "Полузащитник", "attack": 90, "defense": 65, "price": 4000000, "country": "🇧🇪 Бельгия", "stars": 5},
-    {"name": "Ван Дейк", "position": "Защитник", "attack": 55, "defense": 89, "price": 3200000, "country": "🇳🇱 Нидерланды", "stars": 4},
-    {"name": "Рамос", "position": "Защитник", "attack": 60, "defense": 87, "price": 2800000, "country": "🇪🇸 Испания", "stars": 4},
-    {"name": "Алиссон", "position": "Вратарь", "attack": 30, "defense": 89, "price": 2500000, "country": "🇧🇷 Бразилия", "stars": 4},
-    {"name": "Неймар", "position": "Нападающий", "attack": 88, "defense": 36, "price": 3500000, "country": "🇧🇷 Бразилия", "stars": 4},
-    {"name": "Канте", "position": "Полузащитник", "attack": 82, "defense": 87, "price": 2200000, "country": "🇫🇷 Франция", "stars": 4},
-    {"name": "Зидан", "position": "Полузащитник", "attack": 89, "defense": 72, "price": 3000000, "country": "🇫🇷 Франция", "stars": 4},
-    {"name": "Гризманн", "position": "Нападающий", "attack": 86, "defense": 58, "price": 2700000, "country": "🇫🇷 Франция", "stars": 4},
-    {"name": "Кейн", "position": "Нападающий", "attack": 89, "defense": 52, "price": 3200000, "country": "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Англия", "stars": 4},
-    {"name": "Сон", "position": "Нападающий", "attack": 87, "defense": 45, "price": 2900000, "country": "🇰🇷 Корея", "stars": 4},
-    {"name": "Одегор", "position": "Полузащитник", "attack": 85, "defense": 62, "price": 2600000, "country": "🇳🇴 Норвегия", "stars": 4},
-    {"name": "Райс", "position": "Полузащитник", "attack": 82, "defense": 80, "price": 2400000, "country": "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Англия", "stars": 4},
-    {"name": "Гвардиола", "position": "Защитник", "attack": 58, "defense": 85, "price": 2100000, "country": "🇪🇸 Испания", "stars": 3},
-    {"name": "Леви", "position": "Нападающий", "attack": 84, "defense": 42, "price": 1900000, "country": "🇵🇱 Польша", "stars": 3},
-    {"name": "Фирмино", "position": "Нападающий", "attack": 83, "defense": 55, "price": 1800000, "country": "🇧🇷 Бразилия", "stars": 3}
-]
 
 # === ОСНОВНОЙ КЛАСС ИГРЫ ===
 class AdvancedFootballManager:
@@ -281,22 +146,6 @@ class AdvancedFootballManager:
             self.money = 10000000
             self.week = 1
             self.players = []
-            self.league_teams = [
-                {"name": "Мечтатели FC", "points": 0, "goals_for": 0, "goals_against": 0},
-                {"name": "Гладиаторы", "points": 0, "goals_for": 0, "goals_against": 0},
-                {"name": "Титаны", "points": 0, "goals_for": 0, "goals_against": 0},
-                {"name": "Буревестники", "points": 0, "goals_for": 0, "goals_against": 0},
-                {"name": "Молния", "points": 0, "goals_for": 0, "goals_against": 0},
-                {"name": "Феникс", "points": 0, "goals_for": 0, "goals_against": 0}
-            ]
-            self.academy = {
-                "level": 1,
-                "training_cost": 500000,
-                "next_refresh": 0,
-                "current_player": None
-            }
-        
-        self.generate_transfer_market()
     
     def save_game(self):
         game_data = {
@@ -305,8 +154,6 @@ class AdvancedFootballManager:
             'money': self.money, 
             'week': self.week,
             'players': self.players,
-            'league_teams': self.league_teams,
-            'academy': self.academy
         }
         try:
             with open(f'/tmp/football_save_{self.user_id}.json', 'w') as f:
@@ -323,8 +170,6 @@ class AdvancedFootballManager:
                 self.money = game_data['money']
                 self.week = game_data['week'] 
                 self.players = game_data['players']
-                self.league_teams = game_data['league_teams']
-                self.academy = game_data['academy']
         except:
             pass
     
@@ -334,18 +179,8 @@ class AdvancedFootballManager:
             club_data = FOOTBALL_CLUBS[club_name]
             self.players = club_data['players'].copy()
             self.save_game()
-            return f"✅ Вы выбрали: {club_name}!\n\nТеперь управляйте своим клубом к победе! 🏆"
+            return f"✅ Вы выбрали: {club_name}!"
         return "❌ Клуб не найден"
-    
-    def generate_transfer_market(self):
-        self.transfer_players = []
-        selected_players = random.sample(REAL_PLAYERS, min(6, len(REAL_PLAYERS)))
-        
-        for player_data in selected_players:
-            player = player_data.copy()
-            player["salary"] = player["price"] // 20
-            player["value"] = player["price"]
-            self.transfer_players.append(player)
     
     def calculate_team_power(self):
         if not self.players:
@@ -355,239 +190,29 @@ class AdvancedFootballManager:
     
     def play_match(self):
         team_power = self.calculate_team_power()
-        opponent_index = (self.week - 1) % (len(self.league_teams) - 1)
-        opponent = self.league_teams[opponent_index + 1]
-        
         opponent_power = 60 + (self.week * 2) + random.randint(-10, 10)
         
         power_diff = team_power - opponent_power
         my_goals = max(0, int(1 + (power_diff / 20) + random.randint(0, 2)))
         opponent_goals = max(0, int(1 + (-power_diff / 20) + random.randint(0, 2)))
         
-        self.league_teams[0]["goals_for"] += my_goals
-        self.league_teams[0]["goals_against"] += opponent_goals
-        opponent["goals_for"] += opponent_goals
-        opponent["goals_against"] += my_goals
-        
         if my_goals > opponent_goals:
             result = f"ПОБЕДА {my_goals}-{opponent_goals}! 🎉"
             self.points += 3
-            self.league_teams[0]["points"] += 3
             prize = 250000
         elif my_goals == opponent_goals:
             result = f"НИЧЬЯ {my_goals}-{opponent_goals} 🤝"
             self.points += 1
-            self.league_teams[0]["points"] += 1
-            opponent["points"] += 1
             prize = 120000
         else:
             result = f"ПОРАЖЕНИЕ {my_goals}-{opponent_goals} 😔"
-            opponent["points"] += 3
             prize = 60000
         
         self.money += prize
         self.week += 1
-        
-        salary_info = ""
-        if self.week % 4 == 0:
-            total_salary = sum(p["salary"] for p in self.players)
-            self.money -= total_salary
-            salary_info = f"\n💸 Зарплаты: -{total_salary:,}€"
-        
         self.save_game()
-        return f"🎯 Неделя {self.week-1}\n⚔️ Против: {opponent['name']}\n{result}\n💰 Приз: +{prize:,}€{salary_info}\n🏆 Очков: {self.points}\n💵 Бюджет: {self.money:,}€"
-    
-    def show_league_table(self):
-        sorted_teams = sorted(self.league_teams, key=lambda x: (-x["points"], -(x["goals_for"] - x["goals_against"])))
         
-        table = "🏆 ТАБЛИЦА ЛИГИ:\n\n"
-        table += "№  Команда           О  ГЗ  ГП  Р\n"
-        table += "─" * 30 + "\n"
-        
-        for i, team in enumerate(sorted_teams, 1):
-            goals_diff = team["goals_for"] - team["goals_against"]
-            goals_diff_str = f"+{goals_diff}" if goals_diff > 0 else str(goals_diff)
-            emoji = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else "  "
-            table += f"{i:<2}{emoji} {team['name']:<15} {team['points']:<2} {team['goals_for']:<2} {team['goals_against']:<2} {goals_diff_str:<3}\n"
-        
-        table += f"\n📅 Текущая неделя: {self.week}"
-        return table
-    
-    def show_transfer_market(self):
-        if not self.transfer_players:
-            self.generate_transfer_market()
-        
-        market = "🛒 ТРАНСФЕРНЫЙ РЫНОК СО ЗВЕЗДАМИ!\n\n"
-        for i, player in enumerate(self.transfer_players, 1):
-            stars = "⭐" * player.get("stars", 3)
-            market += f"{i}. {player['name']} {player['country']}\n"
-            market += f"   📍 {player['position']} | ⚔️{player['attack']} 🛡️{player['defense']}\n"
-            market += f"   {stars}\n"
-            market += f"   💰 {player['price']:,}€\n\n"
-        
-        market += "🛒 Команды:\n/buy [номер] - Купить игрока\n/sell [номер] - Продать игрока\n/refresh - Обновить рынок"
-        return market
-    
-    def buy_player(self, player_num):
-        try:
-            player_index = int(player_num) - 1
-            if player_index < 0 or player_index >= len(self.transfer_players):
-                return "❌ Неверный номер игрока!"
-            
-            player = self.transfer_players[player_index]
-            
-            if self.money < player["price"]:
-                return f"❌ Недостаточно денег! Нужно {player['price']:,}€"
-            
-            if len(self.players) >= 8:
-                return "❌ В команде максимум 8 игроков! Сначала продай кого-то."
-            
-            new_player = player.copy()
-            new_player["salary"] = player["price"] // 20
-            new_player["value"] = player["price"]
-            self.players.append(new_player)
-            
-            self.money -= player["price"]
-            self.transfer_players.pop(player_index)
-            
-            self.save_game()
-            return f"✅ УСПЕШНАЯ ПОКУПКА!\n👤 {new_player['name']} ({new_player['position']})\n⭐ ⚔️{new_player['attack']} 🛡️{new_player['defense']}\n💵 Цена: {player['price']:,}€\n💰 Осталось: {self.money:,}€"
-        
-        except ValueError:
-            return "❌ Используй: /buy [номер]"
-    
-    def sell_player(self, player_num):
-        try:
-            player_index = int(player_num) - 1
-            if player_index < 0 or player_index >= len(self.players):
-                return "❌ Неверный номер игрока!"
-            
-            if len(self.players) <= 4:
-                return "❌ В команде должно быть минимум 4 игрока!"
-            
-            player = self.players[player_index]
-            sell_price = player["value"] * 0.8
-            
-            self.money += sell_price
-            self.players.pop(player_index)
-            
-            self.save_game()
-            return f"✅ ИГРОК ПРОДАН!\n👤 {player['name']} ({player['position']})\n💵 Получено: {sell_price:,.0f}€\n💰 Бюджет: {self.money:,}€"
-        
-        except ValueError:
-            return "❌ Используй: /sell [номер]"
-    
-    def refresh_market(self):
-        self.generate_transfer_market()
-        return "🔃 Трансферный рынок обновлен! Новые звезды доступны!"
-    
-    def generate_youth_player(self):
-        level = self.academy["level"]
-        positions = ["Нападающий", "Полузащитник", "Защитник", "Вратарь"]
-        names = ["Новиков", "Молодцов", "Талантов", "Будущий", "Звездов", "Надеждин"]
-        
-        min_power = 60 + (level - 1) * 5
-        max_power = 70 + (level - 1) * 5
-        
-        position = random.choice(positions)
-        if position == "Нападающий":
-            attack = random.randint(min_power, max_power)
-            defense = random.randint(30, 50)
-        elif position == "Полузащитник":
-            attack = random.randint(min_power - 5, max_power - 5)
-            defense = random.randint(min_power - 10, max_power - 10)
-        elif position == "Защитник":
-            attack = random.randint(40, 60)
-            defense = random.randint(min_power, max_power)
-        else:
-            attack = random.randint(20, 40)
-            defense = random.randint(min_power, max_power)
-        
-        player = {
-            "name": f"{random.choice(names)}-мл.",
-            "position": position,
-            "attack": attack,
-            "defense": defense,
-            "salary": 10000 * level,
-            "value": 500000 * level,
-            "from_academy": True
-        }
-        
-        return player
-    
-    def upgrade_academy(self):
-        current_level = self.academy["level"]
-        if current_level >= 5:
-            return "❌ Академия уже максимального уровня! 🏆"
-        
-        cost = self.academy["training_cost"]
-        if self.money < cost:
-            return f"❌ Недостаточно денег! Нужно {cost:,}€"
-        
-        self.money -= cost
-        self.academy["level"] += 1
-        self.academy["training_cost"] *= 2
-        
-        self.save_game()
-        return f"✅ Академия улучшена до уровня {self.academy['level']}!\n💰 Стоимость: {cost:,}€\n💵 Осталось: {self.money:,}€"
-    
-    def get_academy_player(self):
-        if self.academy["current_player"] is None:
-            if self.week >= self.academy["next_refresh"]:
-                self.academy["current_player"] = self.generate_youth_player()
-                self.academy["next_refresh"] = self.week + 5
-                self.save_game()
-                return "🔄 Сгенерирован новый молодой игрок! Нажмите '👥 Забрать игрока'"
-            else:
-                weeks_left = self.academy["next_refresh"] - self.week
-                return f"⏳ Новый игрок будет через {weeks_left} недель"
-        
-        return "✅ Есть игрок в академии! Нажмите '👥 Забрать игрока'"
-    
-    def claim_academy_player(self):
-        if self.academy["current_player"] is None:
-            return "❌ Нет доступных игроков в академии"
-        
-        if len(self.players) >= 8:
-            return "❌ В команде максимум 8 игроков! Сначала продайте кого-то."
-        
-        player = self.academy["current_player"]
-        self.players.append(player)
-        self.academy["current_player"] = None
-        
-        self.save_game()
-        return f"✅ Игрок добавлен в команду!\n👤 {player['name']} ({player['position']})\n⭐ ⚔️{player['attack']} 🛡️{player['defense']}"
-    
-    def show_academy_info(self):
-        academy_info = f"🏫 АКАДЕМИЯ [Ур. {self.academy['level']}/5]\n\n"
-        
-        levels = {
-            1: "🔹 Начинающая (60-70 силы)",
-            2: "🔸 Развивающая (65-75 силы)", 
-            3: "🔺 Профессиональная (70-80 силы)",
-            4: "🏅 Элитная (75-85 силы)",
-            5: "⭐ Легендарная (80-90 силы)"
-        }
-        
-        academy_info += f"{levels[self.academy['level']]}\n"
-        academy_info += f"💰 Следующее улучшение: {self.academy['training_cost']:,}€\n\n"
-        
-        if self.academy["current_player"]:
-            player = self.academy["current_player"]
-            academy_info += f"👥 Доступен игрок:\n"
-            academy_info += f"👤 {player['name']} ({player['position']})\n"
-            academy_info += f"⭐ ⚔️{player['attack']} 🛡️{player['defense']}\n"
-        else:
-            if self.week >= self.academy["next_refresh"]:
-                academy_info += "🔄 Доступен новый игрок!\n"
-            else:
-                weeks_left = self.academy["next_refresh"] - self.week
-                academy_info += f"⏳ Новый игрок через {weeks_left} недель\n"
-        
-        return academy_info
-
-# === ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ===
-user_games = {}
+        return f"🎯 Неделя {self.week-1}\n{result}\n💰 Приз: +{prize:,}€\n🏆 Очков: {self.points}"
 
 def get_user_game(user_id):
     if user_id not in user_games:
@@ -611,6 +236,7 @@ def send_pvp_result(match):
     if match.winner == "draw":
         result_text += "🤝 НИЧЬЯ!\n"
         if match.bet_amount > 0:
+            # Возвращаем ставки при ничье
             challenger_game.money += match.bet_amount
             opponent_game.money += match.bet_amount
             challenger_game.save_game()
@@ -621,11 +247,21 @@ def send_pvp_result(match):
         result_text += f"🎉 ПОБЕДИЛ: {winner_game.club_name}!\n"
         
         if match.bet_amount > 0:
-            prize = int(match.bet_amount * 1.6)
+            prize = int(match.bet_amount * 1.8)
             result_text += f"💰 Выигрыш: {prize:,}€\n"
     
-    bot.send_message(match.challenger_id, result_text)
-    bot.send_message(match.opponent_id, result_text)
+    # Отправляем результат обоим игрокам
+    try:
+        bot.send_message(match.challenger_id, result_text)
+        print(f"📤 Результат отправлен вызывающему: {match.challenger_id}")
+    except Exception as e:
+        print(f"❌ Ошибка отправки вызывающему: {e}")
+    
+    try:
+        bot.send_message(match.opponent_id, result_text)
+        print(f"📤 Результат отправлен оппоненту: {match.opponent_id}")
+    except Exception as e:
+        print(f"❌ Ошибка отправки оппоненту: {e}")
 
 # === PvP КОМАНДЫ ===
 @bot.message_handler(commands=['challenge'])
@@ -677,6 +313,7 @@ def challenge_command(message):
         if bet_amount > 0:
             game.money -= bet_amount
             game.save_game()
+            print(f"💰 Списана ставка {bet_amount}€ с {message.chat.id}")
         
         challenge_text = "⚔️ ВЫЗОВ НА МАТЧ!\n\n"
         challenge_text += f"👤 {message.from_user.username or 'Аноним'}\n"
@@ -699,72 +336,34 @@ def challenge_command(message):
         bot.send_message(opponent_id, challenge_text, reply_markup=keyboard)
         bot.send_message(message.chat.id, f"✅ Вызов отправлен @{username}!")
         
+        print(f"📤 Вызов отправлен от {message.chat.id} к {opponent_id}")
+        
     except Exception as e:
-        print(f"Ошибка в challenge: {e}")
+        print(f"🔥 Ошибка в challenge: {e}")
         bot.send_message(message.chat.id, "❌ Ошибка при создании вызова")
 
-@bot.message_handler(commands=['rating'])
-def rating_command(message):
-    game = get_user_game(message.chat.id)
-    if game.club_name is None:
-        bot.send_message(message.chat.id, "❌ Сначала выберите клуб через /start")
-        return
-    
-    rating_data = pvp_manager.rating_system.get_rating(message.chat.id)
-    
-    rating_text = f"📊 ВАШ РЕЙТИНГ PvP\n\n"
-    rating_text += f"⭐ Рейтинг: {rating_data['rating']}\n"
-    rating_text += f"✅ Побед: {rating_data['wins']}\n"
-    rating_text += f"❌ Поражений: {rating_data['losses']}\n"
-    rating_text += f"🤝 Ничьих: {rating_data['draws']}\n\n"
-    
-    if rating_data['wins'] + rating_data['losses'] + rating_data['draws'] > 0:
-        total = rating_data['wins'] + rating_data['losses'] + rating_data['draws']
-        win_rate = (rating_data['wins'] / total) * 100
-        rating_text += f"📈 Винрейт: {win_rate:.1f}%"
-    
-    bot.send_message(message.chat.id, rating_text)
-
-@bot.message_handler(commands=['top'])
-def top_command(message):
-    top_players = sorted(
-        [(user_id, data) for user_id, data in pvp_manager.rating_system.ratings.items()],
-        key=lambda x: x[1]['rating'],
-        reverse=True
-    )[:10]
-    
-    top_text = "🏆 ТОП-10 ИГРОКОВ PvP\n\n"
-    
-    for i, (user_id, data) in enumerate(top_players, 1):
-        try:
-            user_game = get_user_game(user_id)
-            emoji = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else "🔸"
-            username = user_usernames.get(user_id, "Аноним")
-            top_text += f"{emoji} {i}. {user_game.club_name} ({username}) - {data['rating']}⭐\n"
-        except:
-            continue
-    
-    bot.send_message(message.chat.id, top_text)
-
-# === ОБРАБОТЧИКИ PvP КОЛБЭКОВ ===
 @bot.callback_query_handler(func=lambda call: call.data.startswith('pvp_accept_'))
 def handle_pvp_accept(call):
     try:
         match_id = call.data[10:]
-        print(f"🔄 Принимаем матч: {match_id}")
+        print(f"🔄 Попытка принять матч: {match_id}")
+        print(f"   ID пользователя: {call.message.chat.id}")
         
         # Ищем матч
         match = pvp_manager.get_match(match_id)
         
         if not match:
-            bot.answer_callback_query(call.id, "❌ Матч не найден!")
+            print(f"❌ Матч {match_id} не найден в памяти!")
+            bot.answer_callback_query(call.id, "❌ Матч не найден или устарел!")
             return
         
         if match.status != "pending":
+            print(f"❌ Матч уже обработан, статус: {match.status}")
             bot.answer_callback_query(call.id, "❌ Матч уже завершен!")
             return
         
         if call.message.chat.id != match.opponent_id:
+            print(f"❌ Не тот пользователь: {call.message.chat.id} != {match.opponent_id}")
             bot.answer_callback_query(call.id, "❌ Это не ваш вызов!")
             return
         
@@ -778,6 +377,9 @@ def handle_pvp_accept(call):
         if match.bet_amount > 0:
             opponent_game.money -= match.bet_amount
             opponent_game.save_game()
+            print(f"💰 Списана ставка {match.bet_amount}€ с оппонента {match.opponent_id}")
+        
+        print(f"✅ Принимаем матч: {match_id}")
         
         # Рассчитываем результат
         match = pvp_manager.calculate_pvp_result(match)
@@ -785,20 +387,23 @@ def handle_pvp_accept(call):
         # Отправляем результаты
         send_pvp_result(match)
         
-        # Удаляем из pending
-        if match.opponent_id in pvp_manager.pending_requests:
-            del pvp_manager.pending_requests[match.opponent_id]
+        # Удаляем завершенный матч из памяти
+        if match_id in pvp_manager.active_matches:
+            del pvp_manager.active_matches[match_id]
+            print(f"🗑️ Удален завершенный матч: {match_id}")
             
         bot.answer_callback_query(call.id, "✅ Матч принят!")
         
     except Exception as e:
-        print(f"❌ Ошибка в pvp_accept: {e}")
+        print(f"🔥 Ошибка в pvp_accept: {e}")
         bot.answer_callback_query(call.id, "❌ Ошибка!")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('pvp_decline_'))
 def handle_pvp_decline(call):
     try:
         match_id = call.data[11:]
+        print(f"🔄 Отклонение матча: {match_id}")
+        
         match = pvp_manager.get_match(match_id)
         
         if match and match.status == "pending":
@@ -807,6 +412,7 @@ def handle_pvp_decline(call):
                 challenger_game = get_user_game(match.challenger_id)
                 challenger_game.money += match.bet_amount
                 challenger_game.save_game()
+                print(f"💰 Возвращена ставка {match.bet_amount}€ вызывающему {match.challenger_id}")
             
             match.status = "declined"
             
@@ -814,9 +420,10 @@ def handle_pvp_decline(call):
             bot.edit_message_text("❌ Вызов отклонен", call.message.chat.id, call.message.message_id)
             bot.send_message(match.challenger_id, "❌ Ваш вызов был отклонен.")
             
-            # Чистим
-            if match.opponent_id in pvp_manager.pending_requests:
-                del pvp_manager.pending_requests[match.opponent_id]
+            # Удаляем матч из памяти
+            if match_id in pvp_manager.active_matches:
+                del pvp_manager.active_matches[match_id]
+                print(f"🗑️ Удален отклоненный матч: {match_id}")
                 
     except Exception as e:
         print(f"Ошибка в pvp_decline: {e}")
@@ -835,195 +442,19 @@ def start_command(message):
             keyboard.add(InlineKeyboardButton(club, callback_data=f"club_{club}"))
         
         bot.send_message(message.chat.id, 
-            "⚽ ДОБРО ПОЖАЛОВАТЬ В ФУТБОЛЬНЫЙ МЕНЕДЖЕР 2025! 🏆\n\n"
-            "Выберите свой клуб:",
+            "⚽ ФУТБОЛЬНЫЙ МЕНЕДЖЕР\n\nВыберите клуб:",
             reply_markup=keyboard)
     else:
-        show_main_menu(message.chat.id, game)
+        bot.send_message(message.chat.id, 
+            f"🏆 {game.club_name}\n"
+            f"💵 Бюджет: {game.money:,}€\n"
+            f"🏅 Очков: {game.points}\n"
+            f"📅 Неделя: {game.week}\n\n"
+            "Команды:\n"
+            "/play - Сыграть матч\n"
+            "/challenge @user - PvP матч\n"
+            "/team - Моя команда")
 
-def show_main_menu(chat_id, game):
-    keyboard = InlineKeyboardMarkup()
-    keyboard.add(InlineKeyboardButton("👥 Моя команда", callback_data="menu_team"))
-    keyboard.add(InlineKeyboardButton("⚽ Сыграть матч", callback_data="menu_play"))
-    keyboard.add(InlineKeyboardButton("🏆 Таблица лиги", callback_data="menu_table"))
-    keyboard.add(InlineKeyboardButton("🛒 Трансферный рынок", callback_data="menu_market"))
-    keyboard.add(InlineKeyboardButton("🏫 Академия", callback_data="menu_academy"))
-    keyboard.add(InlineKeyboardButton("⚔️ PvP", callback_data="menu_pvp"))
-    
-    bot.send_message(chat_id,
-        f"🏆 {game.club_name}\n"
-        f"💵 Бюджет: {game.money:,}€\n"
-        f"🏅 Очков: {game.points}\n"
-        f"📅 Неделя: {game.week}\n\n"
-        "Выберите действие:",
-        reply_markup=keyboard)
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith('club_'))
-def handle_club_selection(call):
-    club_name = call.data[5:]
-    game = get_user_game(call.message.chat.id)
-    result = game.select_club(club_name)
-    
-    bot.edit_message_text(
-        f"{result}\n\nТеперь вы управляете {club_name}! 🎉",
-        call.message.chat.id,
-        call.message.message_id
-    )
-    show_main_menu(call.message.chat.id, game)
-
-@bot.callback_query_handler(func=lambda call: call.data == "menu_team")
-def handle_menu_team(call):
-    game = get_user_game(call.message.chat.id)
-    team_info = f"🏆 {game.club_name}\n💰 Бюджет: {game.money:,}€\n🏅 Очков: {game.points}\n⭐ Сила: {game.calculate_team_power():.1f}\n\n"
-    team_info += "👥 Состав:\n"
-    for i, player in enumerate(game.players, 1):
-        team_info += f"{i}. {player['name']} ({player['position']})\n"
-        team_info += f"   ⚔️{player['attack']} 🛡️{player['defense']} 💰{player['salary']:,}€\n"
-    
-    keyboard = InlineKeyboardMarkup()
-    keyboard.add(InlineKeyboardButton("🔙 Назад", callback_data="menu_back"))
-    
-    bot.edit_message_text(team_info, call.message.chat.id, call.message.message_id, reply_markup=keyboard)
-
-@bot.callback_query_handler(func=lambda call: call.data == "menu_play")
-def handle_menu_play(call):
-    game = get_user_game(call.message.chat.id)
-    result = game.play_match()
-    keyboard = InlineKeyboardMarkup()
-    keyboard.add(InlineKeyboardButton("🔙 Назад", callback_data="menu_back"))
-    bot.edit_message_text(result, call.message.chat.id, call.message.message_id, reply_markup=keyboard)
-
-@bot.callback_query_handler(func=lambda call: call.data == "menu_table")
-def handle_menu_table(call):
-    game = get_user_game(call.message.chat.id)
-    table = game.show_league_table()
-    keyboard = InlineKeyboardMarkup()
-    keyboard.add(InlineKeyboardButton("🔙 Назад", callback_data="menu_back"))
-    bot.edit_message_text(table, call.message.chat.id, call.message.message_id, reply_markup=keyboard)
-
-@bot.callback_query_handler(func=lambda call: call.data == "menu_market")
-def handle_menu_market(call):
-    game = get_user_game(call.message.chat.id)
-    market = game.show_transfer_market()
-    keyboard = InlineKeyboardMarkup()
-    keyboard.add(InlineKeyboardButton("🔄 Обновить рынок", callback_data="market_refresh"))
-    keyboard.add(InlineKeyboardButton("🔙 Назад", callback_data="menu_back"))
-    bot.edit_message_text(market, call.message.chat.id, call.message.message_id, reply_markup=keyboard)
-
-@bot.callback_query_handler(func=lambda call: call.data == "menu_academy")
-def handle_menu_academy(call):
-    game = get_user_game(call.message.chat.id)
-    academy_info = game.show_academy_info()
-    keyboard = InlineKeyboardMarkup()
-    keyboard.add(InlineKeyboardButton("🔄 Проверить игрока", callback_data="academy_check"))
-    keyboard.add(InlineKeyboardButton("⚡ Улучшить", callback_data="academy_upgrade"))
-    keyboard.add(InlineKeyboardButton("👥 Забрать игрока", callback_data="academy_claim"))
-    keyboard.add(InlineKeyboardButton("🔙 Назад", callback_data="menu_back"))
-    bot.edit_message_text(academy_info, call.message.chat.id, call.message.message_id, reply_markup=keyboard)
-
-@bot.callback_query_handler(func=lambda call: call.data == "menu_pvp")
-def handle_menu_pvp(call):
-    pvp_text = "⚔️ PvP СИСТЕМА\n\n"
-    pvp_text += "🎮 Играйте против других игроков!\n\n"
-    pvp_text += "📋 Команды:\n"
-    pvp_text += "/challenge @username [ставка] - Вызвать игрока\n"
-    pvp_text += "/rating - Ваш рейтинг\n"
-    pvp_text += "/top - Топ игроков\n\n"
-    pvp_text += "💡 Совет: Улучшайте команду чтобы побеждать в PvP!"
-    
-    keyboard = InlineKeyboardMarkup()
-    keyboard.add(InlineKeyboardButton("📊 Мой рейтинг", callback_data="pvp_rating"))
-    keyboard.add(InlineKeyboardButton("🏆 Топ игроков", callback_data="pvp_top"))
-    keyboard.add(InlineKeyboardButton("🔙 Назад", callback_data="menu_back"))
-    
-    bot.edit_message_text(pvp_text, call.message.chat.id, call.message.message_id, reply_markup=keyboard)
-
-@bot.callback_query_handler(func=lambda call: call.data == "menu_back")
-def handle_menu_back(call):
-    game = get_user_game(call.message.chat.id)
-    show_main_menu(call.message.chat.id, game)
-
-@bot.callback_query_handler(func=lambda call: call.data == "market_refresh")
-def handle_market_refresh(call):
-    game = get_user_game(call.message.chat.id)
-    result = game.refresh_market()
-    market = game.show_transfer_market()
-    keyboard = InlineKeyboardMarkup()
-    keyboard.add(InlineKeyboardButton("🔄 Обновить рынок", callback_data="market_refresh"))
-    keyboard.add(InlineKeyboardButton("🔙 Назад", callback_data="menu_back"))
-    bot.edit_message_text(f"{result}\n\n{market}", call.message.chat.id, call.message.message_id, reply_markup=keyboard)
-
-@bot.callback_query_handler(func=lambda call: call.data == "academy_check")
-def handle_academy_check(call):
-    game = get_user_game(call.message.chat.id)
-    result = game.get_academy_player()
-    academy_info = game.show_academy_info()
-    keyboard = InlineKeyboardMarkup()
-    keyboard.add(InlineKeyboardButton("🔄 Проверить игрока", callback_data="academy_check"))
-    keyboard.add(InlineKeyboardButton("⚡ Улучшить", callback_data="academy_upgrade"))
-    keyboard.add(InlineKeyboardButton("👥 Забрать игрока", callback_data="academy_claim"))
-    keyboard.add(InlineKeyboardButton("🔙 Назад", callback_data="menu_back"))
-    bot.edit_message_text(f"{result}\n\n{academy_info}", call.message.chat.id, call.message.message_id, reply_markup=keyboard)
-
-@bot.callback_query_handler(func=lambda call: call.data == "academy_upgrade")
-def handle_academy_upgrade(call):
-    game = get_user_game(call.message.chat.id)
-    result = game.upgrade_academy()
-    academy_info = game.show_academy_info()
-    keyboard = InlineKeyboardMarkup()
-    keyboard.add(InlineKeyboardButton("🔄 Проверить игрока", callback_data="academy_check"))
-    keyboard.add(InlineKeyboardButton("⚡ Улучшить", callback_data="academy_upgrade"))
-    keyboard.add(InlineKeyboardButton("👥 Забрать игрока", callback_data="academy_claim"))
-    keyboard.add(InlineKeyboardButton("🔙 Назад", callback_data="menu_back"))
-    bot.edit_message_text(f"{result}\n\n{academy_info}", call.message.chat.id, call.message.message_id, reply_markup=keyboard)
-
-@bot.callback_query_handler(func=lambda call: call.data == "academy_claim")
-def handle_academy_claim(call):
-    game = get_user_game(call.message.chat.id)
-    result = game.claim_academy_player()
-    academy_info = game.show_academy_info()
-    keyboard = InlineKeyboardMarkup()
-    keyboard.add(InlineKeyboardButton("🔄 Проверить игрока", callback_data="academy_check"))
-    keyboard.add(InlineKeyboardButton("⚡ Улучшить", callback_data="academy_upgrade"))
-    keyboard.add(InlineKeyboardButton("👥 Забрать игрока", callback_data="academy_claim"))
-    keyboard.add(InlineKeyboardButton("🔙 Назад", callback_data="menu_back"))
-    bot.edit_message_text(f"{result}\n\n{academy_info}", call.message.chat.id, call.message.message_id, reply_markup=keyboard)
-
-@bot.callback_query_handler(func=lambda call: call.data == "pvp_rating")
-def handle_pvp_rating(call):
-    rating_data = pvp_manager.rating_system.get_rating(call.message.chat.id)
-    rating_text = f"📊 ВАШ РЕЙТИНГ PvP\n\n⭐ Рейтинг: {rating_data['rating']}\n✅ Побед: {rating_data['wins']}\n❌ Поражений: {rating_data['losses']}\n🤝 Ничьих: {rating_data['draws']}"
-    
-    keyboard = InlineKeyboardMarkup()
-    keyboard.add(InlineKeyboardButton("🔙 В меню PvP", callback_data="menu_pvp"))
-    
-    bot.edit_message_text(rating_text, call.message.chat.id, call.message.message_id, reply_markup=keyboard)
-
-@bot.callback_query_handler(func=lambda call: call.data == "pvp_top")
-def handle_pvp_top(call):
-    top_players = sorted(
-        [(user_id, data) for user_id, data in pvp_manager.rating_system.ratings.items()],
-        key=lambda x: x[1]['rating'],
-        reverse=True
-    )[:10]
-    
-    top_text = "🏆 ТОП-10 ИГРОКОВ PvP\n\n"
-    
-    for i, (user_id, data) in enumerate(top_players, 1):
-        try:
-            user_game = get_user_game(user_id)
-            emoji = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else "🔸"
-            username = user_usernames.get(user_id, "Аноним")
-            top_text += f"{emoji} {i}. {user_game.club_name} ({username}) - {data['rating']}⭐\n"
-        except:
-            continue
-    
-    keyboard = InlineKeyboardMarkup()
-    keyboard.add(InlineKeyboardButton("🔙 В меню PvP", callback_data="menu_pvp"))
-    
-    bot.edit_message_text(top_text, call.message.chat.id, call.message.message_id, reply_markup=keyboard)
-
-# === ТЕКСТОВЫЕ КОМАНДЫ ===
 @bot.message_handler(commands=['play'])
 def play_command(message):
     game = get_user_game(message.chat.id)
@@ -1038,81 +469,33 @@ def team_command(message):
     if game.club_name is None:
         start_command(message)
     else:
-        team_info = f"🏆 {game.club_name}\n💰 Бюджет: {game.money:,}€\n🏅 Очков: {game.points}\n⭐ Сила: {game.calculate_team_power():.1f}\n\n"
+        team_info = f"🏆 {game.club_name}\n💵 {game.money:,}€\n🏅 {game.points} очков\n⭐ Сила: {game.calculate_team_power():.1f}\n\n"
         team_info += "👥 Состав:\n"
         for i, player in enumerate(game.players, 1):
-            team_info += f"{i}. {player['name']} ({player['position']})\n"
-            team_info += f"   ⚔️{player['attack']} 🛡️{player['defense']} 💰{player['salary']:,}€\n"
+            team_info += f"{i}. {player['name']} ({player['position']}) ⚔️{player['attack']} 🛡️{player['defense']}\n"
         bot.send_message(message.chat.id, team_info)
 
-@bot.message_handler(commands=['table'])
-def table_command(message):
-    game = get_user_game(message.chat.id)
-    if game.club_name is None:
-        start_command(message)
-    else:
-        bot.send_message(message.chat.id, game.show_league_table())
+@bot.message_handler(commands=['debug_pvp'])
+def debug_pvp_command(message):
+    """Команда для отладки PvP"""
+    debug_text = f"🔧 PvP ДЕБАГ:\n"
+    debug_text += f"Активных матчей: {len(pvp_manager.active_matches)}\n"
+    for match_id, match in pvp_manager.active_matches.items():
+        debug_text += f"🎯 {match_id}: {match.challenger_id} vs {match.opponent_id} (статус: {match.status})\n"
+    
+    bot.send_message(message.chat.id, debug_text)
 
-@bot.message_handler(commands=['market'])
-def market_command(message):
-    game = get_user_game(message.chat.id)
-    if game.club_name is None:
-        start_command(message)
-    else:
-        bot.send_message(message.chat.id, game.show_transfer_market())
-
-@bot.message_handler(commands=['buy'])
-def buy_command(message):
-    game = get_user_game(message.chat.id)
-    if game.club_name is None:
-        start_command(message)
-    else:
-        parts = message.text.split()
-        if len(parts) == 2:
-            bot.send_message(message.chat.id, game.buy_player(parts[1]))
-        else:
-            bot.send_message(message.chat.id, "Используй: /buy [номер]")
-
-@bot.message_handler(commands=['sell'])
-def sell_command(message):
-    game = get_user_game(message.chat.id)
-    if game.club_name is None:
-        start_command(message)
-    else:
-        parts = message.text.split()
-        if len(parts) == 2:
-            bot.send_message(message.chat.id, game.sell_player(parts[1]))
-        else:
-            bot.send_message(message.chat.id, "Используй: /sell [номер]")
-
-@bot.message_handler(commands=['refresh'])
-def refresh_command(message):
-    game = get_user_game(message.chat.id)
-    if game.club_name is None:
-        start_command(message)
-    else:
-        bot.send_message(message.chat.id, game.refresh_market())
-
-@bot.message_handler(commands=['academy'])
-def academy_command(message):
-    game = get_user_game(message.chat.id)
-    if game.club_name is None:
-        start_command(message)
-    else:
-        academy_info = game.show_academy_info()
-        keyboard = InlineKeyboardMarkup()
-        keyboard.add(InlineKeyboardButton("🔄 Проверить игрока", callback_data="academy_check"))
-        keyboard.add(InlineKeyboardButton("⚡ Улучшить", callback_data="academy_upgrade"))
-        keyboard.add(InlineKeyboardButton("👥 Забрать игрока", callback_data="academy_claim"))
-        bot.send_message(message.chat.id, academy_info, reply_markup=keyboard)
-
-@bot.message_handler(commands=['money'])
-def money_command(message):
-    game = get_user_game(message.chat.id)
-    if game.club_name is None:
-        start_command(message)
-    else:
-        bot.send_message(message.chat.id, f"💵 Бюджет: {game.money:,}€\n🏅 Очков: {game.points}\n📅 Неделя: {game.week}")
+@bot.callback_query_handler(func=lambda call: call.data.startswith('club_'))
+def handle_club_selection(call):
+    club_name = call.data[5:]
+    game = get_user_game(call.message.chat.id)
+    result = game.select_club(club_name)
+    
+    bot.edit_message_text(
+        f"{result}\n\nИспользуй /play для первого матча!",
+        call.message.chat.id,
+        call.message.message_id
+    )
 
 # === ВЕБХУК ===
 @app.route('/webhook', methods=['POST'])
@@ -1125,7 +508,7 @@ def webhook():
 
 @app.route('/')
 def index():
-    return '⚽ Football Manager Bot is running! 🏆'
+    return '⚽ Football Manager Bot is running!'
 
 def set_webhook():
     webhook_url = f"https://{os.environ.get('RENDER_SERVICE_NAME')}.onrender.com/webhook"
