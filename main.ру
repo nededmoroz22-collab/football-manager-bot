@@ -1,7 +1,6 @@
 from flask import Flask, request
 import os
 import telebot
-import random
 import time
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
@@ -9,224 +8,80 @@ BOT_TOKEN = os.environ.get('BOT_TOKEN')
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
 
-# === ПРОСТАЯ PvP СИСТЕМА ===
-class PvPMatch:
-    def __init__(self, match_id, challenger_id, opponent_id, bet_amount=0):
-        self.match_id = match_id
-        self.challenger_id = challenger_id
-        self.opponent_id = opponent_id
-        self.bet_amount = bet_amount
-        self.status = "pending"
-        self.score = [0, 0]
-        self.winner = None
+# === СУПЕР-ПРОСТАЯ PvP ===
+active_matches = {}
+match_counter = 1
 
-class PvPManager:
-    def __init__(self):
-        self.active_matches = {}
-        self.match_counter = 1
-    
-    def create_match(self, challenger_id, opponent_id, bet_amount=0):
-        match_id = f"match_{self.match_counter}_{int(time.time())}"
-        self.match_counter += 1
-        
-        match = PvPMatch(match_id, challenger_id, opponent_id, bet_amount)
-        self.active_matches[match_id] = match
-        
-        print(f"🎯 Создан матч {match_id}")
-        return match
-    
-    def get_match(self, match_id):
-        return self.active_matches.get(match_id)
-    
-    def calculate_pvp_result(self, match):
-        # Простой расчет результата
-        goals1 = random.randint(0, 5)
-        goals2 = random.randint(0, 5)
-        
-        match.score = [goals1, goals2]
-        
-        if goals1 > goals2:
-            match.winner = match.challenger_id
-        elif goals2 > goals1:
-            match.winner = match.opponent_id
-        else:
-            match.winner = "draw"
-        
-        match.status = "finished"
-        return match
-
-pvp_manager = PvPManager()
-user_usernames = {}
-
-def get_user_club(user_id):
-    """Простая заглушка вместо полноценной игры"""
-    clubs = ["Реал Мадрид", "Барселона", "Ман Сити", "Ливерпуль"]
-    return clubs[user_id % len(clubs)]
-
-# === PvP КОМАНДЫ ===
 @bot.message_handler(commands=['start'])
 def start_command(message):
-    user_usernames[message.chat.id] = message.from_user.username or "Игрок"
-    bot.send_message(message.chat.id, 
-        "⚽ ТЕСТ PvP СИСТЕМЫ\n\n"
-        "Команды:\n"
-        "/challenge @username - Вызвать на матч\n"
-        "/test - Тестовый вызов самому себе")
+    bot.send_message(message.chat.id, "⚽ PvP ТЕСТ - Используй /test")
 
 @bot.message_handler(commands=['test'])
 def test_command(message):
-    """Тестовый вызов самому себе"""
-    try:
-        match = pvp_manager.create_match(message.chat.id, message.chat.id, 0)
-        
-        challenge_text = "⚔️ ТЕСТОВЫЙ ВЫЗОВ!\n\n"
-        challenge_text += f"👤 {message.from_user.username or 'Игрок'}\n"
-        challenge_text += f"🏆 {get_user_club(message.chat.id)}\n\n"
-        challenge_text += "Принять вызов?"
-        
-        keyboard = InlineKeyboardMarkup()
-        keyboard.add(
-            InlineKeyboardButton("✅ ПРИНЯТЬ", callback_data=f"pvp_accept_{match.match_id}"),
-            InlineKeyboardButton("❌ ОТКЛОНИТЬ", callback_data=f"pvp_decline_{match.match_id}")
-        )
-        
-        bot.send_message(message.chat.id, challenge_text, reply_markup=keyboard)
-        
-    except Exception as e:
-        print(f"Ошибка: {e}")
-        bot.send_message(message.chat.id, "❌ Ошибка!")
+    global match_counter
+    
+    # Создаем матч
+    match_id = f"test_match_{match_counter}"
+    match_counter += 1
+    
+    # Сохраняем матч
+    active_matches[match_id] = {
+        'challenger_id': message.chat.id,
+        'opponent_id': message.chat.id, 
+        'status': 'pending'
+    }
+    
+    print(f"🔴 СОЗДАН МАТЧ: {match_id}")
+    print(f"🔴 Всего матчей: {len(active_matches)}")
+    print(f"🔴 ID матча в кнопке: {match_id}")
+    
+    # Показываем кнопки
+    keyboard = InlineKeyboardMarkup()
+    keyboard.add(
+        InlineKeyboardButton("✅ ПРИНЯТЬ ТЕСТ", callback_data=f"accept_{match_id}"),
+    )
+    
+    bot.send_message(message.chat.id, 
+        f"ТЕСТОВЫЙ ВЫЗОВ\nID матча: {match_id}\nНажми кнопку:",
+        reply_markup=keyboard)
 
-@bot.message_handler(commands=['challenge'])
-def challenge_command(message):
-    try:
-        if not message.from_user.username:
-            bot.send_message(message.chat.id, "❌ Установи username в настройках Telegram!")
-            return
-        
-        user_usernames[message.chat.id] = message.from_user.username
-        
-        parts = message.text.split()
-        if len(parts) < 2:
-            bot.send_message(message.chat.id, "Используй: /challenge @username")
-            return
-        
-        username = parts[1].replace('@', '').strip()
-        
-        # Ищем оппонента среди тех, кто запускал бота
-        opponent_id = None
-        for uid, uname in user_usernames.items():
-            if uname.lower() == username.lower():
-                opponent_id = uid
-                break
-        
-        if not opponent_id:
-            bot.send_message(message.chat.id, "❌ Игрок не найден! Скажи ему написать /start")
-            return
-        
-        if opponent_id == message.chat.id:
-            bot.send_message(message.chat.id, "❌ Нельзя играть против себя! Используй /test")
-            return
-        
-        # Создаем матч
-        match = pvp_manager.create_match(message.chat.id, opponent_id, 0)
-        
-        challenge_text = "⚔️ ВЫЗОВ НА МАТЧ!\n\n"
-        challenge_text += f"👤 {message.from_user.username}\n"
-        challenge_text += f"🏆 {get_user_club(message.chat.id)}\n\n"
-        challenge_text += "Принять вызов?"
-        
-        keyboard = InlineKeyboardMarkup()
-        keyboard.add(
-            InlineKeyboardButton("✅ ПРИНЯТЬ", callback_data=f"pvp_accept_{match.match_id}"),
-            InlineKeyboardButton("❌ ОТКЛОНИТЬ", callback_data=f"pvp_decline_{match.match_id}")
-        )
-        
-        bot.send_message(opponent_id, challenge_text, reply_markup=keyboard)
-        bot.send_message(message.chat.id, f"✅ Вызов отправлен @{username}!")
-        
-    except Exception as e:
-        print(f"Ошибка: {e}")
-        bot.send_message(message.chat.id, "❌ Ошибка!")
+@bot.callback_query_handler(func=lambda call: call.data.startswith('accept_'))
+def handle_accept(call):
+    match_id = call.data[7:]  # убираем "accept_"
+    
+    print(f"🟢 НАЖАТА КНОПКА: {match_id}")
+    print(f"🟢 Ищем матч: {match_id}")
+    print(f"🟢 Всего матчей: {len(active_matches)}")
+    print(f"🟢 Все матчи: {list(active_matches.keys())}")
+    
+    # Ищем матч
+    match = active_matches.get(match_id)
+    
+    if not match:
+        print(f"🔴 МАТЧ НЕ НАЙДЕН: {match_id}")
+        bot.answer_callback_query(call.id, f"Матч {match_id} не найден!")
+        return
+    
+    print(f"🟢 МАТЧ НАЙДЕН: {match}")
+    
+    # Меняем статус
+    match['status'] = 'accepted'
+    
+    # Отправляем результат
+    bot.send_message(call.message.chat.id, f"✅ МАТЧ ПРИНЯТ! ID: {match_id}")
+    bot.answer_callback_query(call.id, "Успех!")
+    
+    # Удаляем матч
+    del active_matches[match_id]
+    print(f"🟢 МАТЧ УДАЛЕН: {match_id}")
 
 @bot.message_handler(commands=['debug'])
 def debug_command(message):
-    """Отладочная информация"""
-    debug_text = f"🔧 ДЕБАГ PvP:\n"
-    debug_text += f"Активных матчей: {len(pvp_manager.active_matches)}\n"
-    debug_text += f"Зарегистрированных пользователей: {len(user_usernames)}\n"
-    
-    for match_id, match in pvp_manager.active_matches.items():
-        debug_text += f"🎯 {match_id}: статус {match.status}\n"
+    debug_text = f"🔧 ДЕБАГ:\nМатчей: {len(active_matches)}\n"
+    for match_id, match in active_matches.items():
+        debug_text += f"🎯 {match_id}: {match['status']}\n"
     
     bot.send_message(message.chat.id, debug_text)
-
-# === ОБРАБОТЧИКИ КНОПОК ===
-@bot.callback_query_handler(func=lambda call: call.data.startswith('pvp_accept_'))
-def handle_pvp_accept(call):
-    try:
-        match_id = call.data[10:]
-        print(f"🔄 Принимаем матч: {match_id}")
-        
-        match = pvp_manager.get_match(match_id)
-        
-        if not match:
-            bot.answer_callback_query(call.id, "❌ Матч не найден!")
-            return
-        
-        if match.status != "pending":
-            bot.answer_callback_query(call.id, "❌ Матч уже завершен!")
-            return
-        
-        if call.message.chat.id != match.opponent_id:
-            bot.answer_callback_query(call.id, "❌ Это не ваш вызов!")
-            return
-        
-        # МЕНЯЕМ СТАТУС!
-        match.status = "accepted"
-        print(f"✅ Статус изменен на: {match.status}")
-        
-        # Рассчитываем результат
-        match = pvp_manager.calculate_pvp_result(match)
-        
-        # Отправляем результат
-        result_text = f"⚔️ РЕЗУЛЬТАТ МАТЧА!\n\n"
-        result_text += f"🏆 {get_user_club(match.challenger_id)} {match.score[0]} - {match.score[1]} {get_user_club(match.opponent_id)}\n\n"
-        
-        if match.winner == "draw":
-            result_text += "🤝 НИЧЬЯ!"
-        else:
-            winner_name = user_usernames.get(match.winner, "Игрок")
-            result_text += f"🎉 ПОБЕДИЛ: {winner_name}!"
-        
-        # Отправляем обоим игрокам
-        bot.send_message(match.challenger_id, result_text)
-        bot.send_message(match.opponent_id, result_text)
-        
-        # Удаляем сообщение с кнопками
-        bot.delete_message(call.message.chat.id, call.message.message_id)
-        
-        bot.answer_callback_query(call.id, "✅ Матч принят!")
-        
-    except Exception as e:
-        print(f"Ошибка: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка!")
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith('pvp_decline_'))
-def handle_pvp_decline(call):
-    try:
-        match_id = call.data[11:]
-        
-        match = pvp_manager.get_match(match_id)
-        
-        if match and match.status == "pending":
-            match.status = "declined"
-            
-            # Уведомляем
-            bot.edit_message_text("❌ Вызов отклонен", call.message.chat.id, call.message.message_id)
-            bot.send_message(match.challenger_id, "❌ Ваш вызов был отклонен.")
-                
-    except Exception as e:
-        print(f"Ошибка: {e}")
 
 # === ВЕБХУК ===
 @app.route('/webhook', methods=['POST'])
@@ -239,14 +94,13 @@ def webhook():
 
 @app.route('/')
 def index():
-    return '⚽ PvP Test Bot is running!'
+    return '⚽ PvP Debug Bot'
 
-def set_webhook():
+if __name__ == '__main__':
     webhook_url = f"https://{os.environ.get('RENDER_SERVICE_NAME')}.onrender.com/webhook"
     bot.remove_webhook()
     bot.set_webhook(url=webhook_url)
-    print(f"Webhook set to: {webhook_url}")
-
-if __name__ == '__main__':
-    set_webhook()
-    app.run(host='0.0.0.0', port=5000)
+    print(f"Webhook: {webhook_url}")
+    
+    from waitress import serve
+    serve(app, host="0.0.0.0", port=5000)
