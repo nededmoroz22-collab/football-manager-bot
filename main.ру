@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# main.py - single-file minimal football manager bot
+# main.py - minimal single-file football manager bot
 
 import os
 import asyncio
@@ -8,7 +8,7 @@ import random
 import logging
 from contextlib import contextmanager
 
-# optionally load .env if present
+# optional .env
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -17,8 +17,6 @@ except Exception:
 
 from sqlalchemy import create_engine, Column, Integer, String, Float, Boolean, DateTime
 from sqlalchemy.orm import declarative_base, sessionmaker
-
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
@@ -125,7 +123,6 @@ async def process_scheduled_matches():
                 m.home_goals = hg
                 m.away_goals = ag
                 m.status = "played"
-                # small rating adjustment
                 delta = 1.0 if hg > ag else (-1.0 if hg < ag else 0.2)
                 home_club = s.get(Club, m.home_club_id)
                 away_club = s.get(Club, m.away_club_id)
@@ -172,7 +169,6 @@ async def register_team_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if db_user.club_id:
             await update.message.reply_text("У тебя уже есть клуб.")
             return
-        # ensure unique name
         if s.query(Club).filter_by(name=name).first():
             name = f"{name}-{random.randint(10,99)}"
         club = Club(name=name, owner_id=db_user.id, budget=1_000_000, rating=50.0)
@@ -180,14 +176,8 @@ async def register_team_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         s.commit()
         db_user.club_id = club.id
         s.commit()
-        # create 11 players
         for i in range(11):
-            p = Player(
-                name=f"P{i+1}",
-                club_id=club.id,
-                rating=random.randint(40, 70),
-                value=random.randint(50_000, 200_000),
-            )
+            p = Player(name=f"P{i+1}", club_id=club.id, rating=random.randint(40,70), value=random.randint(50_000,200_000))
             s.add(p)
         s.commit()
     await update.message.reply_text(f"Клуб '{name}' создан! ID: {club.id}")
@@ -263,13 +253,7 @@ async def challenge_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Нельзя вызвать свой клуб.")
             return
         now = datetime.datetime.utcnow()
-        m = Match(
-            home_club_id=home_id,
-            away_club_id=opponent_id,
-            scheduled_time=now,
-            status="scheduled",
-            is_friendly=True,
-        )
+        m = Match(home_club_id=home_id, away_club_id=opponent_id, scheduled_time=now, status="scheduled", is_friendly=True)
         s.add(m)
         s.commit()
     await update.message.reply_text(f"Товарищеский матч создан: {m.id}. Он будет сыгран в ближайшее время.")
@@ -279,63 +263,4 @@ async def schedule_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     with get_session() as s:
         upcoming = s.query(Match).filter(Match.status == "scheduled").order_by(Match.scheduled_time).limit(30).all()
         if not upcoming:
-            await update.message.reply_text("Нет запланированных матчей.")
-            return
-        lines = [
-            f"Match {m.id}: {m.home_club_id} vs {m.away_club_id} at {m.scheduled_time} (friendly={m.is_friendly})"
-            for m in upcoming
-        ]
-        await update.message.reply_text("\n".join(lines))
-
-
-async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "/register_team <name>\n"
-        "/my_team\n"
-        "/clubs\n"
-        "/players <club_id>\n"
-        "/challenge <club_id>\n"
-        "/schedule\n"
-        "/help"
-    )
-
-
-# ---------- RUN ----------
-def run_bot():
-    if not BOT_TOKEN:
-        raise SystemExit("Set BOT_TOKEN environment variable and restart.")
-
-    create_tables()
-
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start_cmd))
-    app.add_handler(CommandHandler("register_team", register_team_cmd))
-    app.add_handler(CommandHandler("my_team", my_team_cmd))
-    app.add_handler(CommandHandler("clubs", clubs_cmd))
-    app.add_handler(CommandHandler("players", players_cmd))
-    app.add_handler(CommandHandler("challenge", challenge_cmd))
-    app.add_handler(CommandHandler("schedule", schedule_cmd))
-    app.add_handler(CommandHandler("help", help_cmd))
-
-    # Scheduler: check every 15 seconds for matches to play
-    scheduler = AsyncIOScheduler()
-    scheduler.add_job(lambda: asyncio.create_task(process_scheduled_matches()), "interval", seconds=15)
-    scheduler.start()
-
-    # If WEBHOOK_BASE_URL present, register webhook; otherwise use polling
-    if WEBHOOK_BASE_URL:
-        webhook_url = f"{WEBHOOK_BASE_URL}/{BOT_TOKEN}"
-        log.info("Setting webhook to %s", webhook_url)
-        app.run_webhook(
-            listen="0.0.0.0",
-            port=PORT,
-            url_path=BOT_TOKEN,
-            webhook_url=webhook_url,
-        )
-    else:
-        log.info("Running in polling mode.")
-        app.run_polling()
-
-
-if __name__ == "__main__":
-    run_bot()
+            await update.message.reply_text("Нет зап
